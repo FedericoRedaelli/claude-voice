@@ -1,0 +1,7 @@
+{
+  "name": "claude-voice",
+  "description": "Voice agent for Claude Code. At every stop, Claude's output is spoken aloud and you reply by voice; your decision flows back so Claude continues.",
+  "version": "0.1.0",
+  "author": { "name": "Federico Redaelli" },
+  "hooks": "./hooks/hooks.json"
+}

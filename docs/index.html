@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-voice — talk to Claude Code</title>
+<meta name="description" content="A voice loop for Claude Code. Claude answers in the terminal; you answer back out loud.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #16150f;
+    --muted: #6b6960;
+    --line: #e4e1d8;
+    --card: #faf9f6;
+    --code-bg: #f4f2ec;
+    --accent: #c96442;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141310;
+      --fg: #f2f0e9;
+      --muted: #9d9a90;
+      --line: #2b2924;
+      --card: #1c1a16;
+      --code-bg: #201e1a;
+      --accent: #e08a6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
+
+  /* hero */
+  header { padding: 88px 0 64px; border-bottom: 1px solid var(--line); }
+  .badge {
+    display: inline-block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px;
+    margin-bottom: 24px;
+  }
+  h1 { font-size: clamp(34px, 7vw, 52px); line-height: 1.1; margin: 0 0 20px; letter-spacing: -.02em; }
+  h1 .mono { color: var(--accent); }
+  .lede { font-size: clamp(17px, 2.6vw, 20px); color: var(--muted); margin: 0 0 32px; max-width: 34em; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-block; text-decoration: none; padding: 11px 20px; border-radius: 8px;
+    font-size: 15px; font-weight: 500; border: 1px solid var(--line); color: var(--fg);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { border-color: var(--accent); }
+
+  /* sections */
+  section { padding: 64px 0; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 28px; font-weight: 600; }
+  h3 { font-size: 17px; margin: 0 0 8px; }
+  p { margin: 0 0 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .card .step { font-size: 12px; color: var(--accent); margin-bottom: 10px; }
+  .card p { color: var(--muted); font-size: 15px; margin: 0; }
+
+  .points { list-style: none; margin: 0; padding: 0; }
+  .points li { padding: 16px 0; border-top: 1px solid var(--line); }
+  .points li:first-child { border-top: 0; padding-top: 0; }
+  .points strong { display: block; margin-bottom: 4px; }
+  .points span { color: var(--muted); font-size: 15px; }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; margin: 0 0 16px;
+  }
+  pre .c { color: var(--muted); }
+  .note { color: var(--muted); font-size: 14px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  td:first-child { white-space: nowrap; }
+  td code { font-size: 13px; }
+  td:nth-child(2) { color: var(--muted); white-space: nowrap; }
+  td:nth-child(3) { color: var(--muted); }
+
+  footer { padding: 48px 0 72px; color: var(--muted); font-size: 14px; }
+  footer ul { list-style: none; margin: 0 0 24px; padding: 0; }
+  footer li { padding: 6px 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="badge">Claude Code plugin</div>
+    <h1><span class="mono">claude-voice</span><br>Claude answers. You answer back — out loud.</h1>
+    <p class="lede">At every stopping point, Claude hands its final text to a voice agent that
+      reads it aloud, takes your questions, and sends your decision back. You keep reading the
+      terminal — the call is just about it.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Install</a>
+      <a class="btn" href="https://github.com/">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<section id="loop">
+  <div class="wrap">
+    <h2>The loop</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="step mono">01</div>
+        <h3>Claude writes</h3>
+        <p>Full answer in the terminal as usual — results, paths, numbered options. Nothing is
+          moved into the call.</p>
+      </div>
+      <div class="card">
+        <div class="step mono">02</div>
+        <h3>A beep, then silence</h3>
+        <p>The mic listens locally for 30 seconds. No audio leaves the machine, no API session,
+          no cost — until you actually speak.</p>
+      </div>
+      <div class="card">
+        <div class="step mono">03</div>
+        <h3>You talk back</h3>
+        <p>Pick one of the options or say something else entirely. The agent reports the
+          decision and Claude picks up from there.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="why">
+  <div class="wrap">
+    <h2>Why it isn't annoying</h2>
+    <ul class="points">
+      <li>
+        <strong>Nothing starts talking on its own.</strong>
+        <span>Walk away mid-task and the loop just ends quietly — no voice narrating to an
+          empty room. You pick it back up at the keyboard.</span>
+      </li>
+      <li>
+        <strong>It won't interrupt itself.</strong>
+        <span>Half-duplex by default: the mic is muted while the agent talks, so laptop
+          speakers can't echo it back. Use headphones for barge-in.</span>
+      </li>
+      <li>
+        <strong>Esc kills the call.</strong>
+        <span>Instant silence — no closing beep, no draining. The tool returns
+          <code>end</code> and Claude stops.</span>
+      </li>
+      <li>
+        <strong>It never invents a choice.</strong>
+        <span>An option is only reported when you picked it whole. A mix, a condition, a
+          different idea — those go back as your own words.</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <pre><span class="c"># 1. deps</span>
+cd claude-voice &amp;&amp; npm install
+
+<span class="c"># 2. try the whole loop with zero external deps</span>
+VOICE_MODE=text claude --plugin-dir ./claude-voice
+
+<span class="c"># 3. for real voice</span>
+export OPENAI_API_KEY=sk-...
+claude --plugin-dir ./claude-voice</pre>
+    <p class="note">Inside Claude Code, confirm with <code>/mcp</code> — look for the
+      <code>voice</code> server and its <code>talk_to_user</code> tool.</p>
+  </div>
+</section>
+
+<section id="config">
+  <div class="wrap">
+    <h2>Config</h2>
+    <table>
+      <thead>
+        <tr><th>Variable</th><th>Default</th><th></th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>OPENAI_API_KEY</code></td><td>—</td><td>Required for voice mode.</td></tr>
+        <tr><td><code>VOICE_MODE</code></td><td><code>voice</code></td><td><code>text</code> runs the same loop in the terminal.</td></tr>
+        <tr><td><code>VOICE_LANG</code></td><td><code>English</code></td><td>What the agent speaks, whatever you speak.</td></tr>
+        <tr><td><code>VOICE_NAME</code></td><td><code>alloy</code></td><td>Pinned voice — otherwise it drifts between sessions.</td></tr>
+        <tr><td><code>VOICE_WAIT_MS</code></td><td><code>30000</code></td><td>How long it listens before ending without a session.</td></tr>
+        <tr><td><code>VOICE_HALF_DUPLEX</code></td><td><code>1</code></td><td><code>0</code> enables barge-in — headphones only.</td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:20px">Twenty more knobs — VAD thresholds, noise
+      reduction, timeouts, the Stop-hook switch — in the
+      <a href="https://github.com/">full table on GitHub</a>. Persist any of them in a
+      gitignored <code>.env</code>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <ul>
+      <li>Node.js 22+</li>
+      <li><code>sox</code> for mic and speaker (voice mode only)</li>
+      <li>An OpenAI API key with Realtime access (voice mode only)</li>
+    </ul>
+    <p><a href="https://github.com/">Source on GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
