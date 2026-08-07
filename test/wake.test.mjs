@@ -226,3 +226,15 @@ test("a missing model is reported instead of spawning anything", async () => {
   assert.equal(await recognize(pcm(200, 20)), "");
   assert.match(logged.join(" "), /setup:wake/);
 });
+
+test("a name truncated into a real word still wakes it", () => {
+  // All three are from live runs against the wake word "Claudio".
+  assert.ok(matchesWake("di me cloud", "claudio"), '"cloud" is one edit from "claud"');
+  assert.ok(matchesWake("claud", "claudio"));
+  assert.ok(matchesWake("vai cloud", "vai claudio"));
+});
+
+test("ordinary speech does not slip through the truncated match", () => {
+  for (const said of ["ciao", "come", "cosa", "[Musica]", "Ci sei io?", "chiudi", "casa"])
+    assert.ok(!matchesWake(said, "claudio"), `"${said}" must not wake`);
+});

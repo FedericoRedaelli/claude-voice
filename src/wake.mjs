@@ -90,7 +90,16 @@ function within(said, want, maxDistance) {
   // fires on ordinary speech is worse than none. It reaches 2 at seven letters, which is where
   // a name like "claudio" lives and where the mishearings that matter sit.
   const budget = Math.min(maxDistance, Math.floor((want.length - 1) / 3));
-  return distance(said, want) <= budget;
+  if (distance(said, want) <= budget) return true;
+
+  // The other way a name comes back wrong: TRUNCATED into a real word. A live "Claudio" was
+  // transcribed "cloud" — three edits from the full name, so rejected, but one edit from its
+  // first five letters. Comparing against the same-length START of the name catches that,
+  // while a four-letter floor and a budget of one keep it from catching ordinary speech
+  // ("ciao" and "come" are both two edits from "clau", and stay out).
+  if (said.length >= 4 && said.length < want.length)
+    return distance(said, want.slice(0, said.length)) <= 1;
+  return false;
 }
 
 // 24 kHz -> 16 kHz, PCM16 mono. Exactly 3 input samples for every 2 output ones, so this is a
