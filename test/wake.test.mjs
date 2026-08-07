@@ -194,3 +194,35 @@ test("a recogniser that fails does not end the wait", async () => {
   assert.equal(await woke, true, "a failed read is a miss, not the end of listening");
   assert.equal(calls, 2);
 });
+
+// --- what actually gets asked of whisper ---------------------------------------------------
+
+test("the wake words are handed to the decoder as its initial prompt", async () => {
+  // Straight from a live run: a real "Claudio" came back as "Vado!" — one shouted word carries
+  // no context and the model reshapes it into something commoner. The initial prompt is the
+  // lever against that, so it must actually reach the command line.
+  const { createWhisperRecognizer } = await import("../src/wake.mjs");
+  const recognize = createWhisperRecognizer({
+    bin: "/bin/echo", // echoes its arguments, which become the "transcript"
+    model: "/dev/null",
+    lang: "it",
+    words: "Claudio, vai Claudio",
+  });
+  const args = await recognize(pcm(200, 20));
+  assert.match(args, /--prompt Claudio, vai Claudio/);
+  assert.match(args, /-l it/);
+});
+
+test("with no wake words configured, no prompt is passed", async () => {
+  const { createWhisperRecognizer } = await import("../src/wake.mjs");
+  const recognize = createWhisperRecognizer({ bin: "/bin/echo", model: "/dev/null" });
+  assert.doesNotMatch(await recognize(pcm(200, 20)), /--prompt/);
+});
+
+test("a missing model is reported instead of spawning anything", async () => {
+  const { createWhisperRecognizer } = await import("../src/wake.mjs");
+  const logged = [];
+  const recognize = createWhisperRecognizer({ bin: "/bin/echo", model: "", log: (m) => logged.push(m) });
+  assert.equal(await recognize(pcm(200, 20)), "");
+  assert.match(logged.join(" "), /setup:wake/);
+});

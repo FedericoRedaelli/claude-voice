@@ -140,8 +140,19 @@ export function createWhisperRecognizer({
   model = process.env.VOICE_WHISPER_MODEL || "",
   lang = "auto",
   timeoutMs = Number(process.env.VOICE_WAKE_TIMEOUT_MS) || 8000,
+  // The names we are listening for, used to BIAS the decoder. A single shouted word carries
+  // no context, and the model fills that in from nothing: a real "Claudio" came back as
+  // "Vado!" — the initial consonant lost, the rest reshaped into a commoner word. Whisper's
+  // initial prompt is exactly the lever for that; it makes the expected spelling cheap to
+  // reach without making anything else impossible.
+  words = "",
   log = () => {},
 } = {}) {
+  const prompt = String(words || "")
+    .split(",")
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .join(", ");
   return async function recognize(pcm) {
     if (!model) {
       log("no VOICE_WHISPER_MODEL set — run `npm run setup:wake`");
@@ -153,6 +164,7 @@ export function createWhisperRecognizer({
       writeFileSync(wav, wavFromPcm(resampleTo16k(pcm)));
       const args = ["-m", model, "-f", wav, "-nt", "-np", "-t", "4"];
       if (lang && lang !== "auto") args.push("-l", lang);
+      if (prompt) args.push("--prompt", prompt);
       const text = await run(bin, args, timeoutMs, log);
       return text;
     } catch (err) {
@@ -219,7 +231,7 @@ export function waitForWakeWord({
   // How much of what came BEFORE the level gate tripped to keep. A wake word is one or two
   // words and the first syllable is what trips the gate, so without a pre-roll whisper is
   // handed "-laudio" and hears nothing.
-  prerollMs = 500,
+  prerollMs = 800,
   // Trailing quiet that ends the utterance, and a ceiling for someone who just keeps talking.
   utteranceSilenceMs = 600,
   maxUtteranceMs = 4000,

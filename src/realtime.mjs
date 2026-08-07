@@ -290,6 +290,7 @@ export async function runVoiceSession({ message, options = [], spoken = "", deps
             bin: config.whisperBin,
             model: config.whisperModel,
             lang: config.langCode || "auto",
+            words: config.wakeWord,
             log: dbg,
           }),
         signal,
