@@ -184,7 +184,7 @@ function turnDetection() {
 
 // Audio dependencies are injectable so the whole session can be exercised headlessly (a
 // self-test feeds synthesized speech in and captures audio out — no real mic/speaker).
-export async function runVoiceSession({ message, options = [], deps = {}, signal } = {}) {
+export async function runVoiceSession({ message, options = [], spoken = "", deps = {}, signal } = {}) {
   requireApiKey();
 
   // The browser backend has to be reachable BEFORE the gate opens a mic — but it must never
@@ -511,9 +511,28 @@ export async function runVoiceSession({ message, options = [], deps = {}, signal
   const open = () => {
     if (opened) return;
     opened = true;
-    dbg("opening turn (response.create)");
+    // When Claude wrote the opening line itself, the agent's job for this turn is to READ it,
+    // not to compose one. Composing is what made the opening run nine seconds while the mic
+    // stayed shut: the model summarises Claude's whole message, adds its own framing, and the
+    // user sits there unable to answer. Per-response instructions override the session's for
+    // this turn only — every later turn goes back to the normal rules.
+    const spokenLine = spoken?.trim();
+    dbg(spokenLine ? `opening turn (verbatim, ${spokenLine.length} chars)` : "opening turn (response.create)");
     try {
-      session.transport.sendEvent({ type: "response.create" });
+      session.transport.sendEvent(
+        spokenLine
+          ? {
+              type: "response.create",
+              response: {
+                instructions:
+                  "Say the following out loud, word for word, and then STOP and wait. Do not " +
+                  "add a greeting, a preamble, a summary or a closing question of your own. " +
+                  "Do not rephrase it. Say exactly this and nothing else:\n\n" +
+                  spokenLine,
+              },
+            }
+          : { type: "response.create" },
+      );
     } catch (err) {
       process.stderr.write(`[claude-voice] opening turn failed: ${err?.message ?? err}\n`);
     }
