@@ -93,11 +93,29 @@ if (added.length) {
 
 // --- 4. prove it works -----------------------------------------------------------------------
 say("\nchecking the recogniser runs …");
-const { createWhisperRecognizer, wavFromPcm } = await import("../src/wake.mjs");
-const recognize = createWhisperRecognizer({ bin, model: modelPath, lang: "auto", log: say });
-// Half a second of silence: we are testing that the binary and the model load, not accuracy.
-const heard = await recognize(Buffer.alloc(24000 * 2 * 0.5));
-say(`ok — whisper answered (${JSON.stringify(heard).slice(0, 60)})`);
+const { createWhisperRecognizer } = await import("../src/wake.mjs");
+// The FIRST run after a download is slow — ten seconds here, against a quarter of a second
+// afterwards — because macOS verifies the freshly downloaded binaries before letting them
+// run. So warm it up, then time the run that resembles real use, and report THAT. Reporting
+// the cold one as the answer would either look broken or, worse, look fine after a timeout.
+const recognize = createWhisperRecognizer({
+  bin,
+  model: modelPath,
+  lang: "auto",
+  timeoutMs: 60000,
+  log: say,
+});
+const silence = Buffer.alloc(24000 * 2 * 0.5); // half a second; this tests loading, not accuracy
+await recognize(silence);
+const started = Date.now();
+await recognize(silence);
+const ms = Date.now() - started;
+say(`ok — whisper ran in ${ms} ms`);
+if (ms > 3000)
+  say(
+    `warning: that is slow enough to be felt before every call. Try a smaller model:\n` +
+      `  VOICE_WHISPER_MODEL_NAME=ggml-tiny.bin npm run setup:wake`,
+  );
 
 say(
   "\nDone. Reload the voice server (/mcp) and the call will only open when you say the wake word.\n" +
