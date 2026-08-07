@@ -14,6 +14,7 @@ import { z } from "zod";
 import { config, requireApiKey } from "./config.mjs";
 import { startMic, createSpeaker, beepPcm, waitForSpeech } from "./audio.mjs";
 import { createTurnState, normalizeDecision } from "./policy.mjs";
+import { createWhisperRecognizer, waitForWakeWord } from "./wake.mjs";
 
 export { normalizeDecision };
 
@@ -268,23 +269,60 @@ export async function runVoiceSession({ message, options = [], spoken = "", deps
         : null;
     if (ticker?.unref) ticker.unref();
 
-    dbg(`gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for speech (level>=${config.wakeLevel}%)`);
-    const spoke = await gate({
-      waitMs: config.waitMs,
-      level: config.wakeLevel,
-      speechMs: config.wakeMs,
-      startMic: mkMic,
-      signal,
-      ignoreWhile: () => Date.now() < quietUntil,
-    });
-    if (ticker) clearInterval(ticker);
-    // Let the beep finish, then hand the mic over to the session (one sox recorder at a time).
-    await cue.stop?.();
-    if (!spoke) {
-      dbg("gate: nobody spoke -> ending without a session");
-      return { kind: "end" };
+    // With a wake word configured the level gate stops being the decision and becomes the
+    // cheap first stage: it says "someone spoke", the local recogniser says whether they
+    // spoke to US. Everything else about the wait — the cue, the ticker, the deadline — is
+    // the same; the two paths differ only in what counts as an answer.
+    if (config.wakeWord) {
+      dbg(
+        `gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for "${config.wakeWord}" ` +
+          `(level>=${config.wakeLevel}%, local whisper)`,
+      );
+      const woke = await waitForWakeWord({
+        waitMs: config.waitMs,
+        words: config.wakeWord,
+        level: config.wakeLevel,
+        speechMs: config.wakeMs,
+        startMic: mkMic,
+        recognize:
+          deps.recognizeWake ||
+          createWhisperRecognizer({
+            bin: config.whisperBin,
+            model: config.whisperModel,
+            lang: config.langCode || "auto",
+            log: dbg,
+          }),
+        signal,
+        ignoreWhile: () => Date.now() < quietUntil,
+        log: dbg,
+      });
+      if (ticker) clearInterval(ticker);
+      await cue.stop?.();
+      if (!woke) {
+        dbg(`nobody said "${config.wakeWord}" -> ending without a session`);
+        lastSessionEndedAt = Date.now();
+        return { kind: "end" };
+      }
+      dbg("wake word heard -> opening session");
+    } else {
+      dbg(`gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for speech (level>=${config.wakeLevel}%)`);
+      const spoke = await gate({
+        waitMs: config.waitMs,
+        level: config.wakeLevel,
+        speechMs: config.wakeMs,
+        startMic: mkMic,
+        signal,
+        ignoreWhile: () => Date.now() < quietUntil,
+      });
+      if (ticker) clearInterval(ticker);
+      // Let the beep finish, then hand the mic to the session (one sox recorder at a time).
+      await cue.stop?.();
+      if (!spoke) {
+        dbg("gate: nobody spoke -> ending without a session");
+        return { kind: "end" };
+      }
+      dbg("gate: speech detected -> opening session");
     }
-    dbg("gate: speech detected -> opening session");
   }
 
   let resolveDecision;

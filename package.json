@@ -17,7 +17,8 @@
     "mic": "node scripts/mic-check.mjs",
     "audio": "node scripts/audio-check.mjs",
     "try": "node scripts/try-voice.mjs",
-    "try:browser": "VOICE_AUDIO=browser node scripts/try-voice.mjs"
+    "try:browser": "VOICE_AUDIO=browser node scripts/try-voice.mjs",
+    "setup:wake": "node scripts/setup-wake.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

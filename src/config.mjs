@@ -140,6 +140,17 @@ export const config = {
   // well under 1%; a voice at laptop distance is in the teens. Raise it in a noisy room.
   wakeLevel: Number(process.env.VOICE_WAKE_LEVEL) || 3,
 
+  // Wake word. Empty (the default) keeps the old behaviour: any voice loud enough opens the
+  // call. Set it to a name — "Claudio", or "vai Claudio", or several separated by commas —
+  // and the level gate becomes the cheap first stage only: what it captures is transcribed
+  // LOCALLY by whisper.cpp and the call opens only if the name is in it. Nothing leaves the
+  // machine and there is no per-noise API cost. Needs `npm run setup:wake`.
+  wakeWord: (process.env.VOICE_WAKE_WORD || "").trim(),
+
+  // Where the local recogniser lives. setup:wake writes both into .env.
+  whisperBin: process.env.VOICE_WHISPER_BIN || "whisper-cli",
+  whisperModel: process.env.VOICE_WHISPER_MODEL || "",
+
   // How much speech that gate needs before it opens the call. A single short word ("vai",
   // "go") is barely 200 ms, so anything higher makes you repeat yourself; raise it only if
   // door slams and coughs keep opening calls.
