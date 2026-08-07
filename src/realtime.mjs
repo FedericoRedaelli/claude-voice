@@ -57,6 +57,23 @@ function buildInstructions(message, options) {
   const optionBlock = options.length
     ? `\n\nOptions Claude offered the user:\n${options.map((o, i) => `${i + 1}. ${o}`).join("\n")}`
     : "";
+  // No options means Claude is REPORTING, not asking — a finished run, a summary of what was
+  // done. The rest of this prompt is written around picking between alternatives, and without
+  // this the agent turns a report into a question, invents choices to offer, and refuses to
+  // let go: the user says "ok, va bene", the agent asks what they would like to do next, and a
+  // run that was over keeps the call open. Hands-free, that is the failure that matters —
+  // walking away has to be a way of finishing, not a way of hanging.
+  const closingBlock = options.length
+    ? ""
+    : [
+        "",
+        "Claude offered NO options this time: this is a REPORT, not a question. Say what",
+        "happened in one or two sentences and then stop. Do not invent options, do not ask",
+        "which one they want, do not ask what to do next — if they have something to add they",
+        "will say it. Anything that sounds like agreement, acknowledgement or nothing at all",
+        "('ok', 'va bene', 'perfetto', 'grazie', silence) is kind='end': call submit_decision",
+        "with it and let them go. Only a real new instruction is kind='message'.",
+      ].join("\n");
   return [
     `Always speak in ${config.lang}, even if the user speaks another language.`,
     "",
@@ -112,6 +129,7 @@ function buildInstructions(message, options) {
     "or half-transcribed turn). In all those cases reply in one short sentence and, if you are",
     "unsure what they want, ask. When in doubt, ask instead of reporting — a wrong decision",
     "sent to Claude is much worse than one extra question.",
+    closingBlock,
     "",
     "=== Claude's message ===",
     message,

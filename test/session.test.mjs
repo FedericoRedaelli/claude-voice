@@ -376,3 +376,45 @@ test("a blank or whitespace-only opening is treated as no opening at all", async
   await decision;
   assert.equal(openingEvent(ctl).response, undefined, "an empty line must not become a turn");
 });
+
+// --- the end of a run ----------------------------------------------------------------------
+//
+// Claude calling talk_to_user with no options is REPORTING, not asking. The rest of the prompt
+// is written around choosing between alternatives, and without a counterweight the agent turns
+// a summary into a question and refuses to hang up — which, hands-free, means a finished run
+// keeps the call open until the timeout.
+
+test("with no options the agent is told this is a report, and that agreement ends the call", async () => {
+  const { decision, ctl, mic } = run(
+    async (c) => {
+      assert.match(c.instructions, /this is a REPORT, not a question/);
+      assert.match(c.instructions, /Do not invent options/);
+      assert.match(c.instructions, /is kind='end'/);
+      c.event("session.updated");
+      c.speak(200);
+      await until(() => {
+        mic.feed(pcm(20, 40));
+        return sentMs(c) > 0;
+      });
+      await c.userTurn(900, "ok va bene");
+      c.submit({ kind: "end" });
+    },
+    { options: [] },
+  );
+  assert.deepEqual(await decision, { kind: "end" });
+});
+
+test("with options offered, the report instructions stay out of the way", async () => {
+  const { decision, ctl, mic } = run(async (c) => {
+    assert.doesNotMatch(c.instructions, /this is a REPORT/);
+    c.event("session.updated");
+    c.speak(200);
+    await until(() => {
+      mic.feed(pcm(20, 40));
+      return sentMs(c) > 0;
+    });
+    await c.userTurn(900, "la prima");
+    c.submit({ kind: "choice", value: OPTIONS[0], optionIndex: 1 });
+  });
+  assert.deepEqual(await decision, { kind: "choice", value: OPTIONS[0] });
+});
