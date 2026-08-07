@@ -16,11 +16,13 @@
     "test:voice": "node scripts/selftest-voice.mjs",
     "mic": "node scripts/mic-check.mjs",
     "audio": "node scripts/audio-check.mjs",
-    "try": "node scripts/try-voice.mjs"
+    "try": "node scripts/try-voice.mjs",
+    "try:browser": "VOICE_AUDIO=browser node scripts/try-voice.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@openai/agents": "^0.1.0",
+    "ws": "^8.18.0",
     "zod": "^3.23.0"
   }
 }

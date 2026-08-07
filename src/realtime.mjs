@@ -153,6 +153,9 @@ function transcriptionPrompt(options) {
   return opts ? `${positional}. ${opts}.` : positional;
 }
 
+// What the environment asked for, before any per-session fallback overwrites it.
+const HALF_DUPLEX_CONFIGURED = config.halfDuplex;
+
 function turnDetection() {
   // Half-duplex has no barge-in by design, so nothing the mic picks up while the agent talks
   // should ever cancel its turn. This must be enforced SERVER-side: `interrupt_response:true`
@@ -184,10 +187,28 @@ function turnDetection() {
 export async function runVoiceSession({ message, options = [], deps = {}, signal } = {}) {
   requireApiKey();
 
-  const mkMic = deps.startMic || startMic;
-  const mkSpeaker = deps.createSpeaker || createSpeaker;
+  // The browser backend has to be reachable BEFORE the gate opens a mic — but it must never
+  // be a new way for the call to fail: if no tab answers, sox takes over and the user gets
+  // the old half-duplex behaviour instead of silence.
+  // A tab missing for ONE call must not silently pin every later call to half-duplex, so the
+  // configured value is restored before each session decides again.
+  config.halfDuplex = HALF_DUPLEX_CONFIGURED;
+  let audio = { startMic, createSpeaker, waitForSpeech };
+  if (config.audio === "browser" && !deps.startMic) {
+    const browser = await import("./browser-audio.mjs");
+    if (await browser.ensureBrowserAudio()) {
+      audio = browser;
+      dbg(`audio backend: browser (${browser.browserAudioUrl()})`);
+    } else {
+      dbg("audio backend: browser requested but no tab — falling back to sox (half-duplex)");
+      config.halfDuplex = true;
+    }
+  }
+
+  const mkMic = deps.startMic || audio.startMic;
+  const mkSpeaker = deps.createSpeaker || audio.createSpeaker;
   const beep = deps.beepPcm || beepPcm;
-  const gate = deps.waitForSpeech || waitForSpeech;
+  const gate = deps.waitForSpeech || audio.waitForSpeech;
 
   // The gate: beep, then wait for the user to start talking before paying for (and starting)
   // a Realtime session. Claude has already printed its answer as text, so if nobody is at the

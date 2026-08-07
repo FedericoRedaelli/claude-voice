@@ -89,11 +89,23 @@ export const config = {
         ? "far_field"
         : "near_field",
 
-  // Half-duplex by DEFAULT (idiot-proof on speakers): the mic is muted while the agent talks
-  // so its voice can't echo back into the mic and make it interrupt/repeat itself. This is
-  // the reliable "it just works" mode. Set VOICE_HALF_DUPLEX=0 for full-duplex barge-in
-  // (interrupt the agent while it speaks) — only sane with HEADPHONES.
-  halfDuplex: process.env.VOICE_HALF_DUPLEX === "0" ? false : true,
+  // Where the audio actually happens. "sox" records and plays locally — simple, but with no
+  // acoustic echo cancellation, which is why half-duplex exists. "browser" uses a localhost
+  // page as the sound card (see browser-audio.mjs): the browser's own AEC removes the agent's
+  // voice from what the mic hears, so full-duplex barge-in works on open speakers.
+  audio: process.env.VOICE_AUDIO === "browser" ? "browser" : "sox",
+
+  // Half-duplex by DEFAULT on sox (idiot-proof on speakers): the mic is muted while the agent
+  // talks so its voice can't echo back into the mic and make it interrupt/repeat itself.
+  // With the browser backend there IS echo cancellation, so the default flips: muting the mic
+  // there would throw away the barge-in that backend exists to provide. Either way
+  // VOICE_HALF_DUPLEX=1/0 forces it.
+  halfDuplex:
+    process.env.VOICE_HALF_DUPLEX === "0"
+      ? false
+      : process.env.VOICE_HALF_DUPLEX === "1"
+        ? true
+        : process.env.VOICE_AUDIO !== "browser",
 
   // Half-duplex only: how long after the agent's audio stops before the mic re-opens (covers
   // the speaker's playback tail).
