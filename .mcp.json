@@ -2,7 +2,7 @@
   "voice": {
     "type": "stdio",
     "command": "/opt/homebrew/bin/node",
-    "args": ["/Users/federicoredaelli/Desktop/voice-claude/src/server.mjs"],
+    "args": ["${CLAUDE_PLUGIN_ROOT}/src/server.mjs"],
     "env": { "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" }
   }
 }
