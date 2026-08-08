@@ -4,5 +4,18 @@
     "context7@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "github@claude-plugins-official": true
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/node \"$CLAUDE_PROJECT_DIR/hooks/stop-nudge.mjs\""
+          }
+        ]
+      }
+    ]
   }
 }

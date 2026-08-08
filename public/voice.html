@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>claude-voice</title>
+    <style>
+      :root { color-scheme: dark light; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 2rem 1rem;
+        font: 15px/1.55 -apple-system, system-ui, sans-serif;
+        background: #14151a; color: #e7e7ea;
+      }
+      main { width: min(34rem, 92vw); text-align: center; }
+      h1 { font-size: 1.05rem; font-weight: 600; letter-spacing: .02em; margin: 0 0 .2rem; }
+      p.sub { margin: 0 0 2rem; opacity: .5; font-size: .85rem; }
+      button {
+        font: inherit; font-weight: 600; padding: .85rem 2rem; border: 0; border-radius: 999px;
+        background: #d97757; color: #14151a; cursor: pointer;
+      }
+      button:hover:not(:disabled) { filter: brightness(1.08); }
+      button:disabled { opacity: .3; cursor: default; }
+      button.ghost { background: transparent; color: #e7e7ea; box-shadow: inset 0 0 0 1px #3a3b45; }
+      #status { margin-top: 1.4rem; font-size: .85rem; opacity: .8; min-height: 1.5em; }
+      #meter { margin: 1.1rem auto 0; width: 100%; height: 6px; border-radius: 3px; background: #26272e; overflow: hidden; }
+      #bar { height: 100%; width: 0; background: #6cc38a; transition: width .06s linear; }
+      .dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: #6cc38a; margin-right: .4rem; }
+      .off { background: #7a7b85; }
+      /* What to say. This is the whole point of having a page: a wake word you cannot read
+         anywhere is a password you have to remember. */
+      #howto {
+        margin-top: 1.6rem; padding: 1rem 1.2rem; border-radius: .7rem;
+        background: #1c1d24; box-shadow: inset 0 0 0 1px #2c2d36; font-size: .88rem;
+      }
+      #howto b { color: #d97757; font-weight: 600; }
+      #howto .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+      #howto .say { text-align: left; }
+      #report {
+        margin-top: 1.2rem; padding: 1rem 1.2rem; border-radius: .7rem; text-align: left;
+        background: #1c1d24; box-shadow: inset 0 0 0 1px #2c2d36; font-size: .85rem;
+      }
+      #report h2 { margin: 0 0 .7rem; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; opacity: .45; font-weight: 600; }
+      #report dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .45rem .9rem; }
+      #report dt { opacity: .45; white-space: nowrap; font-size: .78rem; padding-top: .1rem; }
+      #report dd { margin: 0; overflow-wrap: anywhere; }
+      #report .kind { display: inline-block; padding: .1rem .5rem; border-radius: .35rem; font-size: .75rem; font-weight: 600; background: #2c2d36; }
+      #report .kind.choice { background: #24402f; color: #8fdcab; }
+      #report .kind.message { background: #2d3550; color: #a8bdf0; }
+      #report .kind.end { background: #3a2b28; color: #e0a793; }
+      .hint { margin-top: 1.6rem; font-size: .76rem; opacity: .35; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>claude-voice</h1>
+      <p class="sub">scheda audio del loop vocale</p>
+
+      <button id="go">Attiva audio</button>
+
+      <div id="live" hidden>
+        <div id="meter"><div id="bar"></div></div>
+        <div id="status"></div>
+
+        <div id="howto">
+          <div class="row">
+            <div class="say" id="say"></div>
+            <button class="ghost" id="start" disabled>Avvia adesso</button>
+          </div>
+        </div>
+
+        <div id="report" hidden>
+          <h2>Ultima chiamata</h2>
+          <dl id="reportBody"></dl>
+        </div>
+      </div>
+
+      <p class="hint">Lascia questa scheda aperta. Il microfono si accende solo quando Claude ascolta.</p>
+    </main>
+
+    <script>
+      // The page is a sound card with a face on it: PCM16 mono @ 24 kHz over the websocket in
+      // both directions, plus the two things only a screen can do — say what the wake word is,
+      // and offer a button for when the wake word mishears you.
+      const RATE = 24000;
+      const $ = (id) => document.getElementById(id);
+      const goBtn = $("go");
+      const startBtn = $("start");
+      const statusEl = $("status");
+      const bar = $("bar");
+
+      const say = (html) => { statusEl.innerHTML = html; };
+
+      const WORKLET = `
+        class Cap extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.buf = new Int16Array(480); // 20 ms at 24 kHz
+            this.n = 0;
+            this.on = false;
+            this.port.onmessage = (e) => { this.on = !!e.data.on; if (!this.on) this.n = 0; };
+          }
+          process(inputs) {
+            const ch = inputs[0] && inputs[0][0];
+            if (!ch || !this.on) return true;
+            let peak = 0;
+            for (let i = 0; i < ch.length; i++) {
+              let s = ch[i];
+              if (s > 1) s = 1; else if (s < -1) s = -1;
+              const a = s < 0 ? -s : s;
+              if (a > peak) peak = a;
+              this.buf[this.n++] = s < 0 ? s * 32768 : s * 32767;
+              if (this.n === this.buf.length) {
+                this.port.postMessage({ pcm: this.buf.slice(), peak });
+                this.n = 0;
+                peak = 0;
+              }
+            }
+            return true;
+          }
+        }
+        class Play extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.q = [];
+            this.off = 0;
+            this.drainReq = false;
+            this.port.onmessage = (e) => {
+              const d = e.data;
+              if (d.cmd === "clear") {
+                this.q = []; this.off = 0; this.drainReq = false;
+                this.port.postMessage({ t: "drained" });
+              } else if (d.cmd === "drain") {
+                if (!this.q.length) this.port.postMessage({ t: "drained" });
+                else this.drainReq = true;
+              } else if (d.pcm) {
+                this.q.push(d.pcm);
+              }
+            };
+          }
+          process(inputs, outputs) {
+            const out = outputs[0][0];
+            let i = 0;
+            while (i < out.length && this.q.length) {
+              const cur = this.q[0];
+              const n = Math.min(out.length - i, cur.length - this.off);
+              out.set(cur.subarray(this.off, this.off + n), i);
+              i += n; this.off += n;
+              if (this.off >= cur.length) { this.q.shift(); this.off = 0; }
+            }
+            while (i < out.length) out[i++] = 0;
+            if (this.drainReq && !this.q.length) {
+              this.drainReq = false;
+              this.port.postMessage({ t: "drained" });
+            }
+            return true;
+          }
+        }
+        registerProcessor("cap", Cap);
+        registerProcessor("play", Play);
+      `;
+
+      let ws = null;
+      let capNode = null;
+      let playNode = null;
+      let wakeWord = "";
+
+      function showHowTo() {
+        const words = wakeWord.split(",").map((w) => w.trim()).filter(Boolean);
+        $("say").innerHTML = words.length
+          ? `Per aprire la chiamata di' <b>${words.map(esc).join("</b> o <b>")}</b>`
+          : "Parla e la chiamata si apre da sola";
+      }
+
+      const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+      // What was decided, and what went back to Claude. Without this the voice loop is the one
+      // part of the session you cannot check afterwards: you hear a confirmation and have to
+      // take its word for it.
+      const KIND_LABEL = { choice: "scelta", message: "istruzione", end: "chiusa" };
+      function showReport(r) {
+        const rows = [];
+        const kind = r.decision?.kind || "end";
+        rows.push(
+          `<dt>Esito</dt><dd><span class="kind ${esc(kind)}">${esc(KIND_LABEL[kind] || kind)}</span></dd>`,
+        );
+        if (r.decision?.value) rows.push(`<dt>Deciso</dt><dd>${esc(r.decision.value)}</dd>`);
+        if (r.heard) rows.push(`<dt>Hai detto</dt><dd>${esc(r.heard)}</dd>`);
+        if (r.spoken) rows.push(`<dt>Ha detto</dt><dd>${esc(r.spoken)}</dd>`);
+        if (r.message) rows.push(`<dt>Da Claude</dt><dd>${esc(r.message)}</dd>`);
+        if (Array.isArray(r.options) && r.options.length)
+          rows.push(
+            `<dt>Opzioni</dt><dd>${r.options.map((o, i) => `${i + 1}. ${esc(o)}`).join("<br>")}</dd>`,
+          );
+        $("reportBody").innerHTML = rows.join("");
+        $("report").hidden = false;
+      }
+
+      function connect() {
+        const t = new URLSearchParams(location.search).get("t");
+        ws = new WebSocket(`ws://${location.host}/ws?t=${encodeURIComponent(t)}`);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          say('<span class="dot off"></span>Collegato. In attesa che Claude parli.');
+          ws.send(JSON.stringify({ t: "ready", sampleRate: RATE }));
+        };
+        ws.onmessage = (ev) => {
+          if (typeof ev.data !== "string") {
+            const pcm = new Int16Array(ev.data);
+            const f = new Float32Array(pcm.length);
+            for (let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 32768;
+            playNode?.port.postMessage({ pcm: f }, [f.buffer]);
+            return;
+          }
+          const msg = JSON.parse(ev.data);
+          if (msg.t === "clear") playNode?.port.postMessage({ cmd: "clear" });
+          else if (msg.t === "drain") playNode?.port.postMessage({ cmd: "drain" });
+          else if (msg.t === "mic") setMic(!!msg.on);
+          else if (msg.t === "hello") { wakeWord = msg.wakeWord || ""; showHowTo(); }
+          else if (msg.t === "report") showReport(msg);
+        };
+        ws.onclose = () => {
+          setMic(false);
+          say('<span class="dot off"></span>Scollegato. Riprovo…');
+          setTimeout(connect, 2000);
+        };
+        ws.onerror = () => {};
+      }
+
+      function setMic(on) {
+        capNode?.port.postMessage({ on });
+        // The button is only meaningful while something is waiting to be started.
+        startBtn.disabled = !on;
+        if (!on) bar.style.width = "0%";
+        say(
+          on
+            ? '<span class="dot"></span><b>Ti ascolto.</b>'
+            : '<span class="dot off"></span>Collegato. Microfono spento.',
+        );
+      }
+
+      startBtn.addEventListener("click", () => {
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "start" }));
+        startBtn.disabled = true;
+      });
+
+      goBtn.addEventListener("click", async () => {
+        goBtn.disabled = true;
+        try {
+          const ctx = new AudioContext({ sampleRate: RATE, latencyHint: "interactive" });
+          await ctx.resume();
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              // THE reason this page exists. Chrome's WebRTC echo canceller removes what the
+              // browser is playing from what the microphone hears, so the agent can be
+              // interrupted mid-sentence on open speakers without hearing itself.
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              channelCount: 1,
+            },
+          });
+
+          const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+          await ctx.audioWorklet.addModule(url);
+          URL.revokeObjectURL(url);
+
+          capNode = new AudioWorkletNode(ctx, "cap");
+          playNode = new AudioWorkletNode(ctx, "play", { outputChannelCount: [1] });
+
+          capNode.port.onmessage = (e) => {
+            const { pcm, peak } = e.data;
+            if (ws?.readyState === 1) ws.send(pcm.buffer);
+            bar.style.width = `${Math.min(100, peak * 140)}%`;
+          };
+          playNode.port.onmessage = (e) => {
+            if (e.data?.t === "drained" && ws?.readyState === 1)
+              ws.send(JSON.stringify({ t: "drained" }));
+          };
+
+          // A capture node is only pulled by the graph when it reaches the destination, so it
+          // goes there through a silent gain — muted, or the mic would loop into the speakers.
+          const mute = new GainNode(ctx, { gain: 0 });
+          ctx.createMediaStreamSource(stream).connect(capNode).connect(mute).connect(ctx.destination);
+          playNode.connect(ctx.destination);
+
+          goBtn.hidden = true;
+          $("live").hidden = false;
+          showHowTo();
+          connect();
+        } catch (err) {
+          goBtn.disabled = false;
+          say(`Errore: ${err?.message ?? err}`);
+          if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "error", message: String(err?.message ?? err) }));
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -15,6 +15,12 @@ order, every time.
    - `message`: a SHORT spoken version of what you just wrote — a couple of sentences, the
      gist and the question. It gets read aloud, so no code, no paths, no lists.
    - `options`: the distinct choices you offered, if any (as an array of strings).
+   - `spoken`: the opening line, word for word, as you want it said out loud. **Always pass
+     it.** Without it the agent composes its own opening from `message` — it re-summarises,
+     adds framing, and runs about nine seconds with the user unable to answer. One or two
+     sentences, under ~35 words: what happened, then the question with the options named and
+     numbered out loud ("uno, ...; due, ...; tre, ... — quale?"). The numbering is what lets
+     them answer "la prima". No code, no paths, no file names.
 
 The tool beeps and waits ~30s for the user to start talking. If they don't (they're away, or
 they'd rather type), it returns `{"kind":"end"}` — no voice session is ever opened. That's a

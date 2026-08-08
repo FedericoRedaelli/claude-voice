@@ -6,13 +6,16 @@ import { runTextSession } from "./text.mjs";
 
 // `signal` aborts when Claude Code cancels the tool call (the user pressed Esc): the session
 // must go silent and return, not keep talking to nobody.
-export async function runSession({ message, options = [], signal }) {
+// `spoken` is the opening line Claude wrote for the agent to read verbatim. Text mode ignores
+// it on purpose: it prints `message`, which is the full version, and reading a line meant for
+// the ear off a screen would just be a worse summary of what is already there.
+export async function runSession({ message, options = [], spoken = "", signal }) {
   if (config.mode === "text") {
     return runTextSession({ message, options, signal });
   }
   // Lazy-import the voice path so text mode never loads the SDK or touches sox.
   voiceModule = voiceModule || (await import("./realtime.mjs"));
-  return voiceModule.runVoiceSession({ message, options, signal });
+  return voiceModule.runVoiceSession({ message, options, spoken, signal });
 }
 
 let voiceModule = null;

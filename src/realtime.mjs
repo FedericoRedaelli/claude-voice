@@ -14,6 +14,7 @@ import { z } from "zod";
 import { config, requireApiKey } from "./config.mjs";
 import { startMic, createSpeaker, beepPcm, waitForSpeech } from "./audio.mjs";
 import { createTurnState, normalizeDecision } from "./policy.mjs";
+import { createWhisperRecognizer, waitForWakeWord } from "./wake.mjs";
 
 export { normalizeDecision };
 
@@ -57,6 +58,23 @@ function buildInstructions(message, options) {
   const optionBlock = options.length
     ? `\n\nOptions Claude offered the user:\n${options.map((o, i) => `${i + 1}. ${o}`).join("\n")}`
     : "";
+  // No options means Claude is REPORTING, not asking — a finished run, a summary of what was
+  // done. The rest of this prompt is written around picking between alternatives, and without
+  // this the agent turns a report into a question, invents choices to offer, and refuses to
+  // let go: the user says "ok, va bene", the agent asks what they would like to do next, and a
+  // run that was over keeps the call open. Hands-free, that is the failure that matters —
+  // walking away has to be a way of finishing, not a way of hanging.
+  const closingBlock = options.length
+    ? ""
+    : [
+        "",
+        "Claude offered NO options this time: this is a REPORT, not a question. Say what",
+        "happened in one or two sentences and then stop. Do not invent options, do not ask",
+        "which one they want, do not ask what to do next — if they have something to add they",
+        "will say it. Anything that sounds like agreement, acknowledgement or nothing at all",
+        "('ok', 'va bene', 'perfetto', 'grazie', silence) is kind='end': call submit_decision",
+        "with it and let them go. Only a real new instruction is kind='message'.",
+      ].join("\n");
   return [
     `Always speak in ${config.lang}, even if the user speaks another language.`,
     "",
@@ -112,6 +130,7 @@ function buildInstructions(message, options) {
     "or half-transcribed turn). In all those cases reply in one short sentence and, if you are",
     "unsure what they want, ask. When in doubt, ask instead of reporting — a wrong decision",
     "sent to Claude is much worse than one extra question.",
+    closingBlock,
     "",
     "=== Claude's message ===",
     message,
@@ -153,6 +172,9 @@ function transcriptionPrompt(options) {
   return opts ? `${positional}. ${opts}.` : positional;
 }
 
+// What the environment asked for, before any per-session fallback overwrites it.
+const HALF_DUPLEX_CONFIGURED = config.halfDuplex;
+
 function turnDetection() {
   // Half-duplex has no barge-in by design, so nothing the mic picks up while the agent talks
   // should ever cancel its turn. This must be enforced SERVER-side: `interrupt_response:true`
@@ -181,13 +203,31 @@ function turnDetection() {
 
 // Audio dependencies are injectable so the whole session can be exercised headlessly (a
 // self-test feeds synthesized speech in and captures audio out — no real mic/speaker).
-export async function runVoiceSession({ message, options = [], deps = {}, signal } = {}) {
+export async function runVoiceSession({ message, options = [], spoken = "", deps = {}, signal } = {}) {
   requireApiKey();
 
-  const mkMic = deps.startMic || startMic;
-  const mkSpeaker = deps.createSpeaker || createSpeaker;
+  // The browser backend has to be reachable BEFORE the gate opens a mic — but it must never
+  // be a new way for the call to fail: if no tab answers, sox takes over and the user gets
+  // the old half-duplex behaviour instead of silence.
+  // A tab missing for ONE call must not silently pin every later call to half-duplex, so the
+  // configured value is restored before each session decides again.
+  config.halfDuplex = HALF_DUPLEX_CONFIGURED;
+  let audio = { startMic, createSpeaker, waitForSpeech };
+  if (config.audio === "browser" && !deps.startMic) {
+    const browser = await import("./browser-audio.mjs");
+    if (await browser.ensureBrowserAudio()) {
+      audio = browser;
+      dbg(`audio backend: browser (${browser.browserAudioUrl()})`);
+    } else {
+      dbg("audio backend: browser requested but no tab — falling back to sox (half-duplex)");
+      config.halfDuplex = true;
+    }
+  }
+
+  const mkMic = deps.startMic || audio.startMic;
+  const mkSpeaker = deps.createSpeaker || audio.createSpeaker;
   const beep = deps.beepPcm || beepPcm;
-  const gate = deps.waitForSpeech || waitForSpeech;
+  const gate = deps.waitForSpeech || audio.waitForSpeech;
 
   // The gate: beep, then wait for the user to start talking before paying for (and starting)
   // a Realtime session. Claude has already printed its answer as text, so if nobody is at the
@@ -229,23 +269,74 @@ export async function runVoiceSession({ message, options = [], deps = {}, signal
         : null;
     if (ticker?.unref) ticker.unref();
 
-    dbg(`gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for speech (level>=${config.wakeLevel}%)`);
-    const spoke = await gate({
-      waitMs: config.waitMs,
-      level: config.wakeLevel,
-      speechMs: config.wakeMs,
-      startMic: mkMic,
-      signal,
-      ignoreWhile: () => Date.now() < quietUntil,
-    });
-    if (ticker) clearInterval(ticker);
-    // Let the beep finish, then hand the mic over to the session (one sox recorder at a time).
-    await cue.stop?.();
-    if (!spoke) {
-      dbg("gate: nobody spoke -> ending without a session");
-      return { kind: "end" };
+    // With a wake word configured the level gate stops being the decision and becomes the
+    // cheap first stage: it says "someone spoke", the local recogniser says whether they
+    // spoke to US. Everything else about the wait — the cue, the ticker, the deadline — is
+    // the same; the two paths differ only in what counts as an answer.
+    // The page's button is a valid answer to EITHER gate. A wake word that mishears you, or a
+    // level gate that will not trip, must never be the only way in — there has to be a control
+    // that always works. Racing it means the losing wait has to be cancelled, hence the extra
+    // controller: the gate holds the microphone open until it is.
+    const manual = new AbortController();
+    const offManual = audio.onManualStart?.(() => manual.abort()) || (() => {});
+    const gateSignal = signal ? AbortSignal.any([signal, manual.signal]) : manual.signal;
+    const startedByHand = () => manual.signal.aborted && !signal?.aborted;
+
+    if (config.wakeWord) {
+      dbg(
+        `gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for "${config.wakeWord}" ` +
+          `(level>=${config.wakeLevel}%, local whisper)`,
+      );
+      const woke = await waitForWakeWord({
+        waitMs: config.waitMs,
+        words: config.wakeWord,
+        level: config.wakeLevel,
+        speechMs: config.wakeMs,
+        startMic: mkMic,
+        recognize:
+          deps.recognizeWake ||
+          createWhisperRecognizer({
+            bin: config.whisperBin,
+            model: config.whisperModel,
+            lang: config.langCode || "auto",
+            words: config.wakeWord,
+            log: dbg,
+          }),
+        signal: gateSignal,
+        ignoreWhile: () => Date.now() < quietUntil,
+        log: dbg,
+      });
+      if (ticker) clearInterval(ticker);
+      offManual();
+      await cue.stop?.();
+      if (startedByHand()) dbg("started from the page button");
+      else if (!woke) {
+        dbg(`nobody said "${config.wakeWord}" -> ending without a session`);
+        lastSessionEndedAt = Date.now();
+        return { kind: "end" };
+      }
+      dbg("wake word heard -> opening session");
+    } else {
+      dbg(`gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for speech (level>=${config.wakeLevel}%)`);
+      const spoke = await gate({
+        waitMs: config.waitMs,
+        level: config.wakeLevel,
+        speechMs: config.wakeMs,
+        startMic: mkMic,
+        signal: gateSignal,
+        ignoreWhile: () => Date.now() < quietUntil,
+      });
+      if (ticker) clearInterval(ticker);
+      offManual();
+      // Let the beep finish, then hand the mic to the session (one sox recorder at a time).
+      await cue.stop?.();
+      if (startedByHand()) dbg("started from the page button");
+      else if (!spoke) {
+        dbg("gate: nobody spoke -> ending without a session");
+        return { kind: "end" };
+      }
+      dbg("gate: speech detected -> opening session");
     }
-    dbg("gate: speech detected -> opening session");
   }
 
   let resolveDecision;
@@ -262,6 +353,20 @@ export async function runVoiceSession({ message, options = [], deps = {}, signal
     try {
       speakerRef?.write(beep({ freq: 520, ms: 180 }));
       speakerRef?.flush?.(); // shorter than the jitter cushion — play it, don't hold it
+    } catch {
+      /* ignore */
+    }
+    // Leave the receipt on screen. The voice loop is otherwise the one part of a session you
+    // cannot check afterwards — you hear a confirmation and have to take its word for what it
+    // sent back. Best effort: no page, no receipt, and never a reason to fail the call.
+    try {
+      audio.reportToPage?.({
+        decision: d,
+        heard: turn.transcript || "",
+        spoken: spoken?.trim() || "",
+        message,
+        options,
+      });
     } catch {
       /* ignore */
     }
@@ -490,9 +595,28 @@ export async function runVoiceSession({ message, options = [], deps = {}, signal
   const open = () => {
     if (opened) return;
     opened = true;
-    dbg("opening turn (response.create)");
+    // When Claude wrote the opening line itself, the agent's job for this turn is to READ it,
+    // not to compose one. Composing is what made the opening run nine seconds while the mic
+    // stayed shut: the model summarises Claude's whole message, adds its own framing, and the
+    // user sits there unable to answer. Per-response instructions override the session's for
+    // this turn only — every later turn goes back to the normal rules.
+    const spokenLine = spoken?.trim();
+    dbg(spokenLine ? `opening turn (verbatim, ${spokenLine.length} chars)` : "opening turn (response.create)");
     try {
-      session.transport.sendEvent({ type: "response.create" });
+      session.transport.sendEvent(
+        spokenLine
+          ? {
+              type: "response.create",
+              response: {
+                instructions:
+                  "Say the following out loud, word for word, and then STOP and wait. Do not " +
+                  "add a greeting, a preamble, a summary or a closing question of your own. " +
+                  "Do not rephrase it. Say exactly this and nothing else:\n\n" +
+                  spokenLine,
+              },
+            }
+          : { type: "response.create" },
+      );
     } catch (err) {
       process.stderr.write(`[claude-voice] opening turn failed: ${err?.message ?? err}\n`);
     }

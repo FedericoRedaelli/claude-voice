@@ -40,16 +40,27 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("The distinct choices you offered the user, if any."),
+      spoken: z
+        .string()
+        .optional()
+        .describe(
+          "The opening line, written by YOU, to be read aloud word for word — one or two " +
+            "short sentences, under about 35 words: what happened, then the question with " +
+            "the options named and numbered. No code, no paths, no file names, no lists. " +
+            "Omit it and the voice agent will compose its own opening from `message`, which " +
+            "is slower and vaguer.",
+        ),
     },
   },
   // `extra.signal` aborts when Claude Code cancels the request — which is what pressing Esc
   // does. Without it the voice session kept running (and talking) after the user bailed out.
-  async ({ message, options }, extra) => {
+  async ({ message, options, spoken }, extra) => {
     let decision;
     try {
       decision = await runSession({
         message: message ?? "",
         options: options ?? [],
+        spoken: spoken ?? "",
         signal: extra?.signal,
       });
     } catch (err) {

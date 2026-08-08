@@ -31,13 +31,14 @@ const OPTIONS = ["Rifare da zero", "Migliorare quella esistente", "Farne una sec
 const MESSAGE = "Ho finito il refactor del login.";
 
 // Wire a run up. `script` drives the model side once the session is connected.
-function run(script, { options = OPTIONS } = {}) {
+function run(script, { options = OPTIONS, spoken = "" } = {}) {
   const speaker = fakeSpeaker();
   const mic = fakeMic();
   const ctl = fakeRealtime({ onConnect: (c) => queueMicrotask(() => script(c, { speaker, mic })) });
   const decision = runVoiceSession({
     message: MESSAGE,
     options,
+    spoken,
     deps: {
       createSession: ctl.createSession,
       createSpeaker: () => speaker,
@@ -303,4 +304,117 @@ test("the agent is told, in its own instructions, how long it may talk", async (
     c.submit({ kind: "end" });
   });
   assert.deepEqual(await decision, { kind: "end" });
+});
+
+// --- the opening line Claude writes itself -------------------------------------------------
+//
+// The agent composing its own opening is what made the first turn run nine seconds with the
+// microphone shut: it re-summarises Claude's whole message and adds its own framing, and on a
+// half-duplex setup the user cannot answer until it stops. Handing it the exact line to read
+// moves that editorial decision to Claude, which has the context to be brief.
+
+const openingEvent = (ctl) => ctl.sentEvents.find((e) => e?.type === "response.create");
+
+test("a supplied opening is handed over verbatim, as instructions for that turn only", async () => {
+  const line = "Ho finito il refactor del login. Uno, rifare da zero; due, migliorare quella esistente; tre, farne una seconda. Quale?";
+  const { decision, ctl, mic } = run(
+    async (c) => {
+      c.event("session.updated");
+      c.speak(200);
+      await until(() => {
+        mic.feed(pcm(20, 40));
+        return sentMs(c) > 0;
+      });
+      await c.userTurn(900, "basta");
+      c.submit({ kind: "end" });
+    },
+    { spoken: line },
+  );
+  await decision;
+
+  const open = openingEvent(ctl);
+  assert.ok(open, "the session still opens by asking for a response");
+  assert.ok(open.response?.instructions.includes(line), "the line reaches the model unedited");
+  assert.match(open.response.instructions, /word for word/i);
+  // Per-response instructions, not a session update: every LATER turn must go back to the
+  // normal rules, or the agent would keep repeating this line.
+  assert.equal(ctl.sentEvents.filter((e) => e?.type === "session.update").length, 0);
+});
+
+test("without a supplied opening the agent composes one, as before", async () => {
+  const { decision, ctl, mic } = run(async (c) => {
+    c.event("session.updated");
+    c.speak(200);
+    await until(() => {
+      mic.feed(pcm(20, 40));
+      return sentMs(c) > 0;
+    });
+    await c.userTurn(900, "basta");
+    c.submit({ kind: "end" });
+  });
+  await decision;
+
+  const open = openingEvent(ctl);
+  assert.ok(open, "the opening turn is still requested");
+  assert.equal(open.response, undefined, "no per-turn override: the session prompt governs");
+});
+
+test("a blank or whitespace-only opening is treated as no opening at all", async () => {
+  const { decision, ctl, mic } = run(
+    async (c) => {
+      c.event("session.updated");
+      c.speak(200);
+      await until(() => {
+        mic.feed(pcm(20, 40));
+        return sentMs(c) > 0;
+      });
+      await c.userTurn(900, "basta");
+      c.submit({ kind: "end" });
+    },
+    { spoken: "   \n  " },
+  );
+  await decision;
+  assert.equal(openingEvent(ctl).response, undefined, "an empty line must not become a turn");
+});
+
+// --- the end of a run ----------------------------------------------------------------------
+//
+// Claude calling talk_to_user with no options is REPORTING, not asking. The rest of the prompt
+// is written around choosing between alternatives, and without a counterweight the agent turns
+// a summary into a question and refuses to hang up — which, hands-free, means a finished run
+// keeps the call open until the timeout.
+
+test("with no options the agent is told this is a report, and that agreement ends the call", async () => {
+  const { decision, ctl, mic } = run(
+    async (c) => {
+      assert.match(c.instructions, /this is a REPORT, not a question/);
+      assert.match(c.instructions, /Do not invent options/);
+      assert.match(c.instructions, /is kind='end'/);
+      c.event("session.updated");
+      c.speak(200);
+      await until(() => {
+        mic.feed(pcm(20, 40));
+        return sentMs(c) > 0;
+      });
+      await c.userTurn(900, "ok va bene");
+      c.submit({ kind: "end" });
+    },
+    { options: [] },
+  );
+  assert.deepEqual(await decision, { kind: "end" });
+});
+
+test("with options offered, the report instructions stay out of the way", async () => {
+  const { decision, ctl, mic } = run(async (c) => {
+    assert.doesNotMatch(c.instructions, /this is a REPORT/);
+    c.event("session.updated");
+    c.speak(200);
+    await until(() => {
+      mic.feed(pcm(20, 40));
+      return sentMs(c) > 0;
+    });
+    await c.userTurn(900, "la prima");
+    c.submit({ kind: "choice", value: OPTIONS[0], optionIndex: 1 });
+  });
+  assert.deepEqual(await decision, { kind: "choice", value: OPTIONS[0] });
 });

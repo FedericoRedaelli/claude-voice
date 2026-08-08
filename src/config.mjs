@@ -89,11 +89,23 @@ export const config = {
         ? "far_field"
         : "near_field",
 
-  // Half-duplex by DEFAULT (idiot-proof on speakers): the mic is muted while the agent talks
-  // so its voice can't echo back into the mic and make it interrupt/repeat itself. This is
-  // the reliable "it just works" mode. Set VOICE_HALF_DUPLEX=0 for full-duplex barge-in
-  // (interrupt the agent while it speaks) — only sane with HEADPHONES.
-  halfDuplex: process.env.VOICE_HALF_DUPLEX === "0" ? false : true,
+  // Where the audio actually happens. "sox" records and plays locally — simple, but with no
+  // acoustic echo cancellation, which is why half-duplex exists. "browser" uses a localhost
+  // page as the sound card (see browser-audio.mjs): the browser's own AEC removes the agent's
+  // voice from what the mic hears, so full-duplex barge-in works on open speakers.
+  audio: process.env.VOICE_AUDIO === "browser" ? "browser" : "sox",
+
+  // Half-duplex by DEFAULT on sox (idiot-proof on speakers): the mic is muted while the agent
+  // talks so its voice can't echo back into the mic and make it interrupt/repeat itself.
+  // With the browser backend there IS echo cancellation, so the default flips: muting the mic
+  // there would throw away the barge-in that backend exists to provide. Either way
+  // VOICE_HALF_DUPLEX=1/0 forces it.
+  halfDuplex:
+    process.env.VOICE_HALF_DUPLEX === "0"
+      ? false
+      : process.env.VOICE_HALF_DUPLEX === "1"
+        ? true
+        : process.env.VOICE_AUDIO !== "browser",
 
   // Half-duplex only: how long after the agent's audio stops before the mic re-opens (covers
   // the speaker's playback tail).
@@ -127,6 +139,17 @@ export const config = {
   // Mic level (RMS %, 0-100) that counts as "the user is talking" in that gate. Room tone is
   // well under 1%; a voice at laptop distance is in the teens. Raise it in a noisy room.
   wakeLevel: Number(process.env.VOICE_WAKE_LEVEL) || 3,
+
+  // Wake word. Empty (the default) keeps the old behaviour: any voice loud enough opens the
+  // call. Set it to a name — "Claudio", or "vai Claudio", or several separated by commas —
+  // and the level gate becomes the cheap first stage only: what it captures is transcribed
+  // LOCALLY by whisper.cpp and the call opens only if the name is in it. Nothing leaves the
+  // machine and there is no per-noise API cost. Needs `npm run setup:wake`.
+  wakeWord: (process.env.VOICE_WAKE_WORD || "").trim(),
+
+  // Where the local recogniser lives. setup:wake writes both into .env.
+  whisperBin: process.env.VOICE_WHISPER_BIN || "whisper-cli",
+  whisperModel: process.env.VOICE_WHISPER_MODEL || "",
 
   // How much speech that gate needs before it opens the call. A single short word ("vai",
   // "go") is barely 200 ms, so anything higher makes you repeat yourself; raise it only if

@@ -5,3 +5,4 @@ node_modules/
 .env
 boot-debug.log
 voice-debug.log
+models/
