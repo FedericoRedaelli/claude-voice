@@ -167,3 +167,47 @@ test("a websocket without the token is refused", async () => {
   });
   assert.equal(outcome, "refused");
 });
+
+// --- the page as a control surface ---------------------------------------------------------
+
+test("the page is told the wake word as soon as it connects", async () => {
+  const hello = page.control.find((m) => m.t === "hello");
+  assert.ok(hello, "a page that cannot read the wake word is a password you must remember");
+  assert.ok("wakeWord" in hello);
+});
+
+test("the page's button reaches whoever is waiting on the gate", async () => {
+  const { onManualStart } = await import("../src/browser-audio.mjs");
+  let fired = 0;
+  const off = onManualStart(() => fired++);
+  page.ws.send(JSON.stringify({ t: "start" }));
+  await settle();
+  assert.equal(fired, 1, "a wake word that mishears you must not be the only way in");
+
+  off();
+  page.ws.send(JSON.stringify({ t: "start" }));
+  await settle();
+  assert.equal(fired, 1, "an unsubscribed listener stops hearing it");
+});
+
+test("the end-of-call report reaches the page", async () => {
+  const { reportToPage } = await import("../src/browser-audio.mjs");
+  reportToPage({
+    decision: { kind: "choice", value: "Rebase su main" },
+    heard: "la prima",
+    message: "Ho finito il refactor.",
+    options: ["Rebase su main", "Merge"],
+  });
+  await settle();
+  const report = page.control.at(-1);
+  assert.equal(report.t, "report");
+  assert.deepEqual(report.decision, { kind: "choice", value: "Rebase su main" });
+  assert.equal(report.heard, "la prima", "what you said is part of the receipt");
+});
+
+test("the page shows the wake word and offers a manual start", async () => {
+  const html = await (await fetch(browserAudioUrl())).text();
+  assert.match(html, /Avvia adesso/, "the always-works control");
+  assert.match(html, /Per aprire la chiamata/, "what to say, in words");
+  assert.match(html, /Ultima chiamata/, "where the receipt goes");
+});

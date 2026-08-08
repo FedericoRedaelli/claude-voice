@@ -7,50 +7,89 @@
     <style>
       :root { color-scheme: dark light; }
       body {
-        margin: 0; min-height: 100vh; display: grid; place-items: center;
-        font: 15px/1.5 -apple-system, system-ui, sans-serif;
+        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 2rem 1rem;
+        font: 15px/1.55 -apple-system, system-ui, sans-serif;
         background: #14151a; color: #e7e7ea;
       }
-      main { width: min(30rem, 90vw); text-align: center; }
-      h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .02em; margin: 0 0 .25rem; }
-      p.sub { margin: 0 0 2rem; opacity: .55; font-size: .85rem; }
+      main { width: min(34rem, 92vw); text-align: center; }
+      h1 { font-size: 1.05rem; font-weight: 600; letter-spacing: .02em; margin: 0 0 .2rem; }
+      p.sub { margin: 0 0 2rem; opacity: .5; font-size: .85rem; }
       button {
-        font: inherit; font-weight: 600; padding: .9rem 2rem; border: 0; border-radius: 999px;
+        font: inherit; font-weight: 600; padding: .85rem 2rem; border: 0; border-radius: 999px;
         background: #d97757; color: #14151a; cursor: pointer;
       }
-      button:hover { filter: brightness(1.08); }
-      #status { margin-top: 1.5rem; font-size: .85rem; opacity: .75; min-height: 1.5em; }
-      #meter { margin: 1.25rem auto 0; width: 100%; height: 6px; border-radius: 3px; background: #26272e; overflow: hidden; }
+      button:hover:not(:disabled) { filter: brightness(1.08); }
+      button:disabled { opacity: .3; cursor: default; }
+      button.ghost { background: transparent; color: #e7e7ea; box-shadow: inset 0 0 0 1px #3a3b45; }
+      #status { margin-top: 1.4rem; font-size: .85rem; opacity: .8; min-height: 1.5em; }
+      #meter { margin: 1.1rem auto 0; width: 100%; height: 6px; border-radius: 3px; background: #26272e; overflow: hidden; }
       #bar { height: 100%; width: 0; background: #6cc38a; transition: width .06s linear; }
-      .dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: #6cc38a; margin-right: .4rem; vertical-align: baseline; }
+      .dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: #6cc38a; margin-right: .4rem; }
       .off { background: #7a7b85; }
-      .hint { margin-top: 2rem; font-size: .78rem; opacity: .4; }
+      /* What to say. This is the whole point of having a page: a wake word you cannot read
+         anywhere is a password you have to remember. */
+      #howto {
+        margin-top: 1.6rem; padding: 1rem 1.2rem; border-radius: .7rem;
+        background: #1c1d24; box-shadow: inset 0 0 0 1px #2c2d36; font-size: .88rem;
+      }
+      #howto b { color: #d97757; font-weight: 600; }
+      #howto .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+      #howto .say { text-align: left; }
+      #report {
+        margin-top: 1.2rem; padding: 1rem 1.2rem; border-radius: .7rem; text-align: left;
+        background: #1c1d24; box-shadow: inset 0 0 0 1px #2c2d36; font-size: .85rem;
+      }
+      #report h2 { margin: 0 0 .7rem; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; opacity: .45; font-weight: 600; }
+      #report dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .45rem .9rem; }
+      #report dt { opacity: .45; white-space: nowrap; font-size: .78rem; padding-top: .1rem; }
+      #report dd { margin: 0; overflow-wrap: anywhere; }
+      #report .kind { display: inline-block; padding: .1rem .5rem; border-radius: .35rem; font-size: .75rem; font-weight: 600; background: #2c2d36; }
+      #report .kind.choice { background: #24402f; color: #8fdcab; }
+      #report .kind.message { background: #2d3550; color: #a8bdf0; }
+      #report .kind.end { background: #3a2b28; color: #e0a793; }
+      .hint { margin-top: 1.6rem; font-size: .76rem; opacity: .35; }
     </style>
   </head>
   <body>
     <main>
       <h1>claude-voice</h1>
       <p class="sub">scheda audio del loop vocale</p>
+
       <button id="go">Attiva audio</button>
-      <div id="meter" hidden><div id="bar"></div></div>
-      <div id="status">In attesa di attivazione.</div>
-      <p class="hint">Lascia questa scheda aperta. Il microfono si accende solo quando Claude sta ascoltando.</p>
+
+      <div id="live" hidden>
+        <div id="meter"><div id="bar"></div></div>
+        <div id="status"></div>
+
+        <div id="howto">
+          <div class="row">
+            <div class="say" id="say"></div>
+            <button class="ghost" id="start" disabled>Avvia adesso</button>
+          </div>
+        </div>
+
+        <div id="report" hidden>
+          <h2>Ultima chiamata</h2>
+          <dl id="reportBody"></dl>
+        </div>
+      </div>
+
+      <p class="hint">Lascia questa scheda aperta. Il microfono si accende solo quando Claude ascolta.</p>
     </main>
 
     <script>
-      // The page is a sound card, nothing more: PCM16 mono @ 24 kHz over the websocket in
-      // both directions. The reason it exists at all is one line further down —
-      // echoCancellation: true — which Node has no equivalent for.
+      // The page is a sound card with a face on it: PCM16 mono @ 24 kHz over the websocket in
+      // both directions, plus the two things only a screen can do — say what the wake word is,
+      // and offer a button for when the wake word mishears you.
       const RATE = 24000;
-      const goBtn = document.getElementById("go");
-      const statusEl = document.getElementById("status");
-      const meter = document.getElementById("meter");
-      const bar = document.getElementById("bar");
+      const $ = (id) => document.getElementById(id);
+      const goBtn = $("go");
+      const startBtn = $("start");
+      const statusEl = $("status");
+      const bar = $("bar");
 
       const say = (html) => { statusEl.innerHTML = html; };
 
-      // Both worklets are inlined as blob modules so the whole page stays one file the Node
-      // side can serve from memory.
       const WORKLET = `
         class Cap extends AudioWorkletProcessor {
           constructor() {
@@ -91,7 +130,6 @@
                 this.q = []; this.off = 0; this.drainReq = false;
                 this.port.postMessage({ t: "drained" });
               } else if (d.cmd === "drain") {
-                // Answer straight away when there is nothing left, otherwise process() will.
                 if (!this.q.length) this.port.postMessage({ t: "drained" });
                 else this.drainReq = true;
               } else if (d.pcm) {
@@ -124,7 +162,38 @@
       let ws = null;
       let capNode = null;
       let playNode = null;
-      let micOn = false;
+      let wakeWord = "";
+
+      function showHowTo() {
+        const words = wakeWord.split(",").map((w) => w.trim()).filter(Boolean);
+        $("say").innerHTML = words.length
+          ? `Per aprire la chiamata di' <b>${words.map(esc).join("</b> o <b>")}</b>`
+          : "Parla e la chiamata si apre da sola";
+      }
+
+      const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+      // What was decided, and what went back to Claude. Without this the voice loop is the one
+      // part of the session you cannot check afterwards: you hear a confirmation and have to
+      // take its word for it.
+      const KIND_LABEL = { choice: "scelta", message: "istruzione", end: "chiusa" };
+      function showReport(r) {
+        const rows = [];
+        const kind = r.decision?.kind || "end";
+        rows.push(
+          `<dt>Esito</dt><dd><span class="kind ${esc(kind)}">${esc(KIND_LABEL[kind] || kind)}</span></dd>`,
+        );
+        if (r.decision?.value) rows.push(`<dt>Deciso</dt><dd>${esc(r.decision.value)}</dd>`);
+        if (r.heard) rows.push(`<dt>Hai detto</dt><dd>${esc(r.heard)}</dd>`);
+        if (r.spoken) rows.push(`<dt>Ha detto</dt><dd>${esc(r.spoken)}</dd>`);
+        if (r.message) rows.push(`<dt>Da Claude</dt><dd>${esc(r.message)}</dd>`);
+        if (Array.isArray(r.options) && r.options.length)
+          rows.push(
+            `<dt>Opzioni</dt><dd>${r.options.map((o, i) => `${i + 1}. ${esc(o)}`).join("<br>")}</dd>`,
+          );
+        $("reportBody").innerHTML = rows.join("");
+        $("report").hidden = false;
+      }
 
       function connect() {
         const t = new URLSearchParams(location.search).get("t");
@@ -137,7 +206,6 @@
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== "string") {
-            // Playback: PCM16LE straight into the worklet's queue.
             const pcm = new Int16Array(ev.data);
             const f = new Float32Array(pcm.length);
             for (let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 32768;
@@ -148,6 +216,8 @@
           if (msg.t === "clear") playNode?.port.postMessage({ cmd: "clear" });
           else if (msg.t === "drain") playNode?.port.postMessage({ cmd: "drain" });
           else if (msg.t === "mic") setMic(!!msg.on);
+          else if (msg.t === "hello") { wakeWord = msg.wakeWord || ""; showHowTo(); }
+          else if (msg.t === "report") showReport(msg);
         };
         ws.onclose = () => {
           setMic(false);
@@ -158,21 +228,25 @@
       }
 
       function setMic(on) {
-        micOn = on;
         capNode?.port.postMessage({ on });
+        // The button is only meaningful while something is waiting to be started.
+        startBtn.disabled = !on;
         if (!on) bar.style.width = "0%";
         say(
           on
-            ? '<span class="dot"></span><b>Ti ascolto.</b> Parla pure.'
+            ? '<span class="dot"></span><b>Ti ascolto.</b>'
             : '<span class="dot off"></span>Collegato. Microfono spento.',
         );
       }
 
+      startBtn.addEventListener("click", () => {
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "start" }));
+        startBtn.disabled = true;
+      });
+
       goBtn.addEventListener("click", async () => {
         goBtn.disabled = true;
         try {
-          // A fixed 24 kHz context means no resampling anywhere: the graph delivers exactly
-          // the format the Realtime API and the sox-era code both expect.
           const ctx = new AudioContext({ sampleRate: RATE, latencyHint: "interactive" });
           await ctx.resume();
 
@@ -205,15 +279,15 @@
               ws.send(JSON.stringify({ t: "drained" }));
           };
 
-          // A capture node is only pulled by the graph when it reaches the destination, so
-          // it goes there through a silent gain — muted, or the mic would be looped back
-          // into the speakers.
+          // A capture node is only pulled by the graph when it reaches the destination, so it
+          // goes there through a silent gain — muted, or the mic would loop into the speakers.
           const mute = new GainNode(ctx, { gain: 0 });
           ctx.createMediaStreamSource(stream).connect(capNode).connect(mute).connect(ctx.destination);
           playNode.connect(ctx.destination);
 
           goBtn.hidden = true;
-          meter.hidden = false;
+          $("live").hidden = false;
+          showHowTo();
           connect();
         } catch (err) {
           goBtn.disabled = false;

@@ -273,6 +273,15 @@ export async function runVoiceSession({ message, options = [], spoken = "", deps
     // cheap first stage: it says "someone spoke", the local recogniser says whether they
     // spoke to US. Everything else about the wait — the cue, the ticker, the deadline — is
     // the same; the two paths differ only in what counts as an answer.
+    // The page's button is a valid answer to EITHER gate. A wake word that mishears you, or a
+    // level gate that will not trip, must never be the only way in — there has to be a control
+    // that always works. Racing it means the losing wait has to be cancelled, hence the extra
+    // controller: the gate holds the microphone open until it is.
+    const manual = new AbortController();
+    const offManual = audio.onManualStart?.(() => manual.abort()) || (() => {});
+    const gateSignal = signal ? AbortSignal.any([signal, manual.signal]) : manual.signal;
+    const startedByHand = () => manual.signal.aborted && !signal?.aborted;
+
     if (config.wakeWord) {
       dbg(
         `gate: waiting up to ${(config.waitMs / 1000).toFixed(0)}s for "${config.wakeWord}" ` +
@@ -293,13 +302,15 @@ export async function runVoiceSession({ message, options = [], spoken = "", deps
             words: config.wakeWord,
             log: dbg,
           }),
-        signal,
+        signal: gateSignal,
         ignoreWhile: () => Date.now() < quietUntil,
         log: dbg,
       });
       if (ticker) clearInterval(ticker);
+      offManual();
       await cue.stop?.();
-      if (!woke) {
+      if (startedByHand()) dbg("started from the page button");
+      else if (!woke) {
         dbg(`nobody said "${config.wakeWord}" -> ending without a session`);
         lastSessionEndedAt = Date.now();
         return { kind: "end" };
@@ -312,13 +323,15 @@ export async function runVoiceSession({ message, options = [], spoken = "", deps
         level: config.wakeLevel,
         speechMs: config.wakeMs,
         startMic: mkMic,
-        signal,
+        signal: gateSignal,
         ignoreWhile: () => Date.now() < quietUntil,
       });
       if (ticker) clearInterval(ticker);
+      offManual();
       // Let the beep finish, then hand the mic to the session (one sox recorder at a time).
       await cue.stop?.();
-      if (!spoke) {
+      if (startedByHand()) dbg("started from the page button");
+      else if (!spoke) {
         dbg("gate: nobody spoke -> ending without a session");
         return { kind: "end" };
       }
@@ -340,6 +353,20 @@ export async function runVoiceSession({ message, options = [], spoken = "", deps
     try {
       speakerRef?.write(beep({ freq: 520, ms: 180 }));
       speakerRef?.flush?.(); // shorter than the jitter cushion — play it, don't hold it
+    } catch {
+      /* ignore */
+    }
+    // Leave the receipt on screen. The voice loop is otherwise the one part of a session you
+    // cannot check afterwards — you hear a confirmation and have to take its word for what it
+    // sent back. Best effort: no page, no receipt, and never a reason to fail the call.
+    try {
+      audio.reportToPage?.({
+        decision: d,
+        heard: turn.transcript || "",
+        spoken: spoken?.trim() || "",
+        message,
+        options,
+      });
     } catch {
       /* ignore */
     }

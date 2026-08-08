@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { waitForSpeech as gate } from "./audio.mjs";
+import { config } from "./config.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PAGE = join(HERE, "..", "public", "voice.html");
@@ -42,6 +43,9 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
   // local page from opening our microphone or listening to the agent's audio.
   const token = randomBytes(16).toString("hex");
   const micListeners = new Set();
+  // The page's "start now" button. A wake word that mishears you must never be the only way
+  // in: there has to be a control that always works.
+  const startListeners = new Set();
   let socket = null;
   let waiters = [];
   let drainWaiters = [];
@@ -81,6 +85,9 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
       socket = ws;
       ws.binaryType = "nodebuffer";
       log("tab connected");
+      // The page has to be able to TELL the user what to say — a wake word nobody can read
+      // anywhere is a password you have to remember.
+      send({ t: "hello", wakeWord: config.wakeWord });
       sendMicState();
       for (const r of waiters.splice(0)) r(true);
 
@@ -96,7 +103,10 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
           return;
         }
         if (msg.t === "drained") for (const r of drainWaiters.splice(0)) r();
-        else if (msg.t === "error") log(`page reported: ${msg.message}`);
+        else if (msg.t === "start") {
+          log("start requested from the page");
+          for (const cb of [...startListeners]) cb();
+        } else if (msg.t === "error") log(`page reported: ${msg.message}`);
         else if (msg.t === "ready") log(`page ready (mic @ ${msg.sampleRate} Hz)`);
       });
       ws.on("close", () => {
@@ -151,6 +161,10 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
       }
       return new Promise((resolve) => server.close(() => resolve()));
     },
+    onManualStart(cb) {
+      startListeners.add(cb);
+      return () => startListeners.delete(cb);
+    },
     addMic(cb) {
       micListeners.add(cb);
       sendMicState();
@@ -160,6 +174,7 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
       };
     },
     sendPcm,
+    report: (r) => send({ t: "report", ...r }),
     clear: () => send({ t: "clear" }),
     // Ask the page to tell us when the last sample has actually been HEARD. Estimating that
     // from bytes written is what clipped the agent's closing words in the sox path.
@@ -226,6 +241,19 @@ export async function shutdownBrowserAudio() {
   const b = bridge;
   bridge = null;
   await b?.close();
+}
+
+// The page's "start now" button. Returns an unsubscribe, or a no-op when there is no bridge
+// (sox backend) — callers race this against the gate and must not have to know which.
+export function onManualStart(cb) {
+  return bridge ? bridge.onManualStart(cb) : () => {};
+}
+
+// What was decided and what went back to Claude, for the page to show once the call is over.
+// Without it the voice loop is the one part of a session you cannot check afterwards: you hear
+// a confirmation and have to take its word for what it reported.
+export function reportToPage(r) {
+  bridge?.report(r);
 }
 
 // Same contract as audio.mjs's startMic: hands each PCM16 chunk to onChunk, stop() ends it.
