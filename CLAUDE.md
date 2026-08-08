@@ -12,8 +12,12 @@ order, every time.
    results, and any options numbered `1.`, `2.`, `3.`. This is what the user reads. Never
    move it into the tool call: the tool is a phone call, not the transcript.
 2. Then call `talk_to_user` (from the `voice` MCP server) with:
-   - `message`: a SHORT spoken version of what you just wrote — a couple of sentences, the
-     gist and the question. It gets read aloud, so no code, no paths, no lists.
+   - `message`: **the full text you just wrote**, not a summary of it. This is not what gets
+     read aloud — `spoken` is. It is the voice agent's ONLY source of knowledge, and it is
+     what lets the user ask follow-up questions ("spiegami meglio il punto sei") and get a
+     real answer instead of "non lo so". A two-sentence summary here is what made every
+     follow-up impossible. Strip only what cannot be spoken about usefully: long code blocks
+     and raw output; keep the reasoning, the numbers and the trade-offs.
    - `options`: the distinct choices you offered, if any (as an array of strings).
    - `spoken`: the opening line, word for word, as you want it said out loud. **Always pass
      it.** Without it the agent composes its own opening from `message` — it re-summarises,
