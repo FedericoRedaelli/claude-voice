@@ -89,11 +89,10 @@ export const config = {
         ? "far_field"
         : "near_field",
 
-  // Where the audio actually happens. "sox" records and plays locally — simple, but with no
-  // acoustic echo cancellation, which is why half-duplex exists. "browser" uses a localhost
-  // page as the sound card (see browser-audio.mjs): the browser's own AEC removes the agent's
-  // voice from what the mic hears, so full-duplex barge-in works on open speakers.
-  audio: process.env.VOICE_AUDIO === "browser" ? "browser" : "sox",
+  // Where the audio actually happens. Only "browser" exists today: the page's own echo
+  // canceller is what makes barge-in work on open speakers. A headless "sox" implementation
+  // is the obvious next slot (spec §4).
+  audio: process.env.VOICE_AUDIO || "browser",
 
   // Half-duplex by DEFAULT on sox (idiot-proof on speakers): the mic is muted while the agent
   // talks so its voice can't echo back into the mic and make it interrupt/repeat itself.
@@ -198,6 +197,43 @@ export const config = {
   // so the tool call never hangs forever.
   timeoutMs: Number(process.env.VOICE_TIMEOUT_MS) || 120000,
 
+  // --- OpenRouter pipeline -------------------------------------------------------------
+  // One key covers transcription, synthesis and reasoning. That is the entire reason this
+  // provider was chosen over three better-at-one-thing ones.
+  openrouterKey: process.env.OPENROUTER_API_KEY || "",
+  baseUrl: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+
+  // Which implementation fills each slot. The registry in modules.mjs turns these names into
+  // dynamic imports, so a future local engine is a value here and nothing else.
+  tts: process.env.VOICE_TTS || "openrouter",
+  stt: process.env.VOICE_STT || "openrouter",
+  brain: process.env.VOICE_BRAIN || "openrouter",
+
+  ttsModel: process.env.VOICE_TTS_MODEL || "microsoft/mai-voice-2-flash",
+  // MAI-Voice-2-Flash ships four voices and none of them is Italian (verified: it-IT-* is a
+  // 502). The model is multilingual, so Harper reads Italian with an English accent. If that
+  // grates, VOICE_TTS_MODEL points at a model with a native Italian voice — same key, same
+  // interface.
+  ttsVoice: process.env.VOICE_TTS_VOICE || "en-US-Harper:MAI-Voice-2",
+  sttModel: process.env.VOICE_STT_MODEL || "openai/whisper-large-v3-turbo",
+  brainModel: process.env.VOICE_BRAIN_MODEL || "openai/gpt-oss-20b",
+
+  // A runaway conversation is a runaway bill. After this many exchanges the call closes and
+  // Claude gets {kind:"end"} — it can always ask again.
+  maxTurns: Number(process.env.VOICE_MAX_TURNS) || 8,
+
+  // Utterance capture. Trailing silence that ends a turn, the floor below which a "turn" is
+  // a cough, and the ceiling that stops a stuck mic from uploading a minute of a room.
+  recordSilenceMs: Number(process.env.VOICE_RECORD_SILENCE_MS) || 800,
+  recordMinMs: Number(process.env.VOICE_RECORD_MIN_MS) || 250,
+  recordMaxMs: Number(process.env.VOICE_RECORD_MAX_MS) || 30000,
+
+  // Level (RMS %) that counts as somebody talking, for both utterance start and barge-in.
+  speechLevel: Number(process.env.VOICE_SPEECH_LEVEL) || 3,
+
+  // What to say when a turn came back empty. It is spoken, so it stays short.
+  retryLine: process.env.VOICE_RETRY_LINE || "Non ho sentito. Puoi ripetere?",
+
   // "1" disables the Stop-hook nudge (read directly in the hook too, as its own process).
   disabled: bool(process.env.VOICE_DISABLE),
 };
@@ -210,3 +246,18 @@ export function requireApiKey() {
     );
   }
 }
+
+// Same idea as requireApiKey, for the only key the new pipeline needs. Split out so the
+// error names the variable the user actually has to set.
+export function makeRequireKey(cfg) {
+  return () => {
+    if (!cfg.openrouterKey) {
+      throw new Error(
+        "OPENROUTER_API_KEY is not set. Set it in .env, or run with VOICE_MODE=text to use " +
+          "the terminal fallback.",
+      );
+    }
+  };
+}
+
+export const requireOpenRouterKey = makeRequireKey(config);
