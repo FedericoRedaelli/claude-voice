@@ -100,13 +100,22 @@ export const config = {
   recordMinMs: Number(process.env.VOICE_RECORD_MIN_MS) || 250,
   recordMaxMs: Number(process.env.VOICE_RECORD_MAX_MS) || 30000,
 
-  // Level (RMS %) that counts as somebody talking, for both utterance start and barge-in.
-  // Room tone is well under 1; a voice at laptop distance is in the teens.
+  // Level (RMS %) that counts as somebody talking, once we are already listening for an
+  // answer. Room tone is well under 1; a voice at laptop distance is in the teens.
   speechLevel: Number(process.env.VOICE_SPEECH_LEVEL) || 3,
 
-  // How long someone must keep talking before it counts as interrupting the voice, rather
-  // than as a cough, a key press or a door. At 0 any blip chops playback in half.
-  bargeInMs: Number(process.env.VOICE_BARGE_IN_MS) || 350,
+  // Give up on an answer that never starts. Without this a turn nobody speaks into hangs for
+  // the whole recordMaxMs — half a minute of the page apparently doing nothing, which reads as
+  // a crash. Reached: the call asks again.
+  recordOnsetMs: Number(process.env.VOICE_RECORD_ONSET_MS) || 8000,
+
+  // Interrupting the voice is a DIFFERENT judgement from answering it, and it used to share
+  // the threshold above. It shouldn't: a faint hum sustained for a moment cut a sentence in
+  // half, and then nobody was talking to record. Interrupting has to look like a voice — the
+  // teens, not the low single digits — and last longer.
+  bargeIn: process.env.VOICE_BARGE_IN !== "0",
+  bargeInLevel: Number(process.env.VOICE_BARGE_IN_LEVEL) || 12,
+  bargeInMs: Number(process.env.VOICE_BARGE_IN_MS) || 600,
 
   // How long the page keeps the button armed before giving up and returning {kind:"end"}
   // without ever opening the call. This is what keeps the voice from talking to an empty

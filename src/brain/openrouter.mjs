@@ -37,12 +37,17 @@ Decide what the developer's last turn means and reply with ONE JSON object, noth
 - They picked an option -> {"action":"decide","kind":"choice","optionIndex":<1-based number>}
 - They gave a different instruction, or a condition on an option ->
   {"action":"decide","kind":"message","value":"<their instruction, in their own words>"}
-- They asked something about the work -> {"action":"speak","say":"<answer, max 2 sentences,
-  only from the context above>"}
+- They asked something WHOSE ANSWER IS WRITTEN ABOVE ->
+  {"action":"speak","say":"<answer, max 2 sentences, quoting only what is above>"}
 - They said they are done, or there is nothing left to settle ->
   {"action":"decide","kind":"end"}
 
 Rules that matter more than being helpful:
+- You know NOTHING except the text above. Not this project, not its settings, not how to
+  configure anything. If the answer is not written above, you must NOT compose one: reply
+  {"action":"decide","kind":"message","value":"<their question, in their own words>"} and
+  Claude will answer it properly on the next turn. Guessing is the worst thing you can do
+  here — a plausible invented answer is acted on as if it were true.
 - Do not answer FOR the developer. If their turn is not clearly one of the four, choose
   "message" and let Claude handle it.
 - Only use "choice" when what they said really maps to one of the numbered options.

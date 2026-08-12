@@ -82,7 +82,14 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
       res.writeHead(403).end("bad token");
       return;
     }
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    // Never cached. The URL and the token survive restarts on purpose, so without this the
+    // browser happily serves yesterday's page against today's server — which is exactly what
+    // happened: the tab still explained a wake word that had been deleted from the source,
+    // and only the websocket messages looked current.
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store, must-revalidate",
+    });
     res.end(html);
   });
 
@@ -305,13 +312,14 @@ export function startMic(onChunk) {
 // a device, and is therefore delivering no audio to count.
 export function createRecorder({ startMic: mic }) {
   return {
-    record({ silenceMs = 800, minMs = 250, maxMs = 30000, level = 3 } = {}) {
+    record({ silenceMs = 800, minMs = 250, maxMs = 30000, onsetMs = 8000, level = 3 } = {}) {
       return new Promise((resolve) => {
         const chunks = [];
         let speaking = false;
         let quietMs = 0;
         let spokenMs = 0;
         let heldMs = 0;
+        let waitedMs = 0;
         let done = false;
 
         const finish = () => {
@@ -330,6 +338,12 @@ export function createRecorder({ startMic: mic }) {
             speaking = true;
             quietMs = 0;
             spokenMs += ms;
+          } else if (!speaking) {
+            // Nobody has started. Waiting the full maxMs for an answer that is not coming is
+            // half a minute of the page apparently doing nothing, which reads as a crash —
+            // and it is what happened after a stray noise cut the voice off mid-sentence.
+            waitedMs += ms;
+            if (waitedMs >= onsetMs) return finish();
           }
           // Everything from the first loud chunk onwards is kept, silence included: the pauses
           // inside a sentence are part of what the transcriber hears.
@@ -369,10 +383,17 @@ export function createAudio({ cfg = config } = {}) {
       return bridge ? bridge.waitForStart(ms) : Promise.resolve(false);
     },
 
-    async play(pcm, { bargeInMs = cfg.bargeInMs, level = cfg.speechLevel } = {}) {
+    async play(pcm, { bargeInMs = cfg.bargeInMs, level = cfg.bargeInLevel } = {}) {
       if (!pcm?.length || !bridge) return { interrupted: false };
       bridge.clear();
       bridge.sendPcm(pcm);
+
+      // Listening while we talk costs nothing to get wrong in one direction and a whole turn
+      // in the other, so it can be switched off entirely.
+      if (cfg.bargeIn === false) {
+        await bridge.drain(Math.min(durationMs(pcm) + 2000, 20000));
+        return { interrupted: false };
+      }
 
       // The page has real echo cancellation, so the mic can stay open while we talk: what it
       // hears is the room, not us. That is the whole reason this backend exists.
@@ -396,6 +417,7 @@ export function createAudio({ cfg = config } = {}) {
         silenceMs: cfg.recordSilenceMs,
         minMs: cfg.recordMinMs,
         maxMs: cfg.recordMaxMs,
+        onsetMs: cfg.recordOnsetMs,
         level: cfg.speechLevel,
         ...opts,
       });

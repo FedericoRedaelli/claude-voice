@@ -100,6 +100,12 @@ test("route sends Claude's full message as context and the turns as history", as
   assert.match(system.content, /Italiano/, "and the language to answer in");
 
   assert.deepEqual(body.messages.slice(1), [{ role: "user", content: "cosa hai cambiato?" }]);
+
+  // It answered a question about background-noise settings by inventing values to change.
+  // Nothing about them was in Claude's message; the prompt has to say what to do instead of
+  // composing an answer, not merely that composing one is forbidden.
+  assert.match(system.content, /know NOTHING except the text above/i);
+  assert.match(system.content, /not written above.*must NOT compose/is);
 });
 
 test("the request asks for a fast provider and leaves the model room to finish", async () => {
