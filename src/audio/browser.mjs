@@ -91,7 +91,11 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
   const startListeners = new Set();
   let socket = null;
   let waiters = [];
-  let drainWaiters = [];
+  // Keyed by request id, not a plain list: an answer must only settle the question that asked
+  // it. As a list, a stray "drained" — the page used to send one on every clear — resolved the
+  // NEXT drain instead, so playback reported itself finished the moment it began.
+  const drainWaiters = new Map();
+  let drainSeq = 0;
 
   const html = readFileSync(PAGE, "utf8");
   const server = createServer((req, res) => {
@@ -158,7 +162,13 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
         } catch {
           return;
         }
-        if (msg.t === "drained") for (const r of drainWaiters.splice(0)) r();
+        if (msg.t === "drained") {
+          const settle = drainWaiters.get(msg.id);
+          if (settle) {
+            drainWaiters.delete(msg.id);
+            settle();
+          }
+        }
         else if (msg.t === "start") {
           log("start requested from the page");
           for (const cb of [...startListeners]) cb();
@@ -169,7 +179,10 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
         if (socket === ws) socket = null;
         log("tab disconnected");
         // Nobody is going to answer a drain request from a closed tab.
-        for (const r of drainWaiters.splice(0)) r();
+        for (const [id, settle] of [...drainWaiters]) {
+          drainWaiters.delete(id);
+          settle();
+        }
       });
       ws.on("error", (e) => log(`socket error: ${String(e?.message ?? e)}`));
     });
@@ -255,12 +268,15 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
     // from bytes written is what clipped the agent's closing words before.
     drain(timeoutMs) {
       if (socket?.readyState !== 1) return Promise.resolve();
-      send({ t: "drain" });
+      const id = ++drainSeq;
+      send({ t: "drain", id });
       return new Promise((resolve) => {
-        drainWaiters.push(resolve);
+        drainWaiters.set(id, resolve);
         const t = setTimeout(() => {
-          drainWaiters = drainWaiters.filter((w) => w !== resolve);
-          resolve();
+          if (drainWaiters.delete(id)) {
+            log(`drain ${id} timed out after ${timeoutMs} ms`);
+            resolve();
+          }
         }, timeoutMs);
         if (t.unref) t.unref();
       });

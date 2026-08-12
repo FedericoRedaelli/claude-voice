@@ -125,15 +125,23 @@
             super();
             this.q = [];
             this.off = 0;
-            this.drainReq = false;
+            // The id of the drain we owe an answer to, or null. It used to be a boolean, and
+            // "clear" reported a drain nobody had asked for — which raced ahead of the real
+            // request and made the player claim it had finished before it had started.
+            this.drainId = null;
             this.port.onmessage = (e) => {
               const d = e.data;
               if (d.cmd === "clear") {
-                this.q = []; this.off = 0; this.drainReq = false;
-                this.port.postMessage({ t: "drained" });
+                this.q = []; this.off = 0;
+                // Only answer a drain that is actually outstanding: whoever asked is waiting
+                // for silence, and clearing delivers it.
+                if (this.drainId !== null) {
+                  this.port.postMessage({ t: "drained", id: this.drainId });
+                  this.drainId = null;
+                }
               } else if (d.cmd === "drain") {
-                if (!this.q.length) this.port.postMessage({ t: "drained" });
-                else this.drainReq = true;
+                if (!this.q.length) this.port.postMessage({ t: "drained", id: d.id });
+                else this.drainId = d.id;
               } else if (d.pcm) {
                 this.q.push(d.pcm);
               }
@@ -150,9 +158,9 @@
               if (this.off >= cur.length) { this.q.shift(); this.off = 0; }
             }
             while (i < out.length) out[i++] = 0;
-            if (this.drainReq && !this.q.length) {
-              this.drainReq = false;
-              this.port.postMessage({ t: "drained" });
+            if (this.drainId !== null && !this.q.length) {
+              this.port.postMessage({ t: "drained", id: this.drainId });
+              this.drainId = null;
             }
             return true;
           }
@@ -220,7 +228,7 @@
           }
           const msg = JSON.parse(ev.data);
           if (msg.t === "clear") playNode?.port.postMessage({ cmd: "clear" });
-          else if (msg.t === "drain") playNode?.port.postMessage({ cmd: "drain" });
+          else if (msg.t === "drain") playNode?.port.postMessage({ cmd: "drain", id: msg.id });
           else if (msg.t === "mic") setMic(!!msg.on);
           else if (msg.t === "ask") showAsk(msg);
           // The button is armed by the call, not by the microphone: the mic only comes on
@@ -305,7 +313,7 @@
           };
           playNode.port.onmessage = (e) => {
             if (e.data?.t === "drained" && ws?.readyState === 1)
-              ws.send(JSON.stringify({ t: "drained" }));
+              ws.send(JSON.stringify({ t: "drained", id: e.data.id }));
           };
 
           // A capture node is only pulled by the graph when it reaches the destination, so it
