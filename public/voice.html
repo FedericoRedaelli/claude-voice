@@ -236,8 +236,20 @@
         ws.onclose = () => {
           setMic(false);
           if (superseded) {
+            // Stand down rather than reconnect — two tabs retrying every two seconds evict
+            // each other forever. But standing down permanently makes the tab dead even after
+            // the winner is gone, so it stays revivable by hand.
             startBtn.disabled = true;
-            say('<span class="dot off"></span>Un\'altra scheda ha preso il controllo. Puoi chiudere questa.');
+            say(
+              '<span class="dot off"></span>Un\'altra scheda ha preso il controllo. ' +
+                'Chiudi questa, oppure <a href="#" id="retake">riprendi il controllo</a>.',
+            );
+            $("retake")?.addEventListener("click", (e) => {
+              e.preventDefault();
+              superseded = false;
+              say('<span class="dot off"></span>Riprendo…');
+              connect();
+            });
             return;
           }
           say('<span class="dot off"></span>Scollegato. Riprovo…');

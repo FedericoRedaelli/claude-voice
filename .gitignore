@@ -9,3 +9,4 @@ models/
 vendor/
 # The bridge token: same standing as .env, and the tab's URL depends on it.
 .voice-bridge-token
+.voice-bridge-tab

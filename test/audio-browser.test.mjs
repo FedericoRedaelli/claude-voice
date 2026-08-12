@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createRecorder } from "../src/audio/browser.mjs";
+import { createRecorder, msSinceTabSeen } from "../src/audio/browser.mjs";
 import { beepPcm } from "../src/pcm.mjs";
 
 // A fake mic: hand it chunks and it delivers them on the next tick, like the bridge does.
@@ -105,4 +105,10 @@ test("a cough shorter than minMs is not an utterance", async () => {
 
   const pcm = await rec.record({ silenceMs: 200, minMs: 250, maxMs: 2000, level: 3 });
   assert.equal(pcm.length, 0);
+});
+
+test("a tab nobody has ever seen is not remembered", () => {
+  // The memory is what stops a fresh bridge — one per call in VOICE_DEV — from deciding there
+  // is no tab just because none is attached in the millisecond it looked.
+  assert.equal(msSinceTabSeen("/definitely/not/a/file"), Infinity);
 });

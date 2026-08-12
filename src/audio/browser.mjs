@@ -15,7 +15,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PAGE = join(HERE, "..", "..", "public", "voice.html");
 // Beside .env, and gitignored for the same reason.
 const TOKEN_FILE = process.env.VOICE_BROWSER_TOKEN_FILE || join(HERE, "..", "..", ".voice-bridge-token");
+// Touched every time a tab attaches. Its mtime is how a BRAND NEW bridge knows a tab is
+// already open somewhere — which it cannot tell by looking, because a tab that lost its server
+// a moment ago is not connected yet and is not absent either.
+const SEEN_FILE = process.env.VOICE_BROWSER_SEEN_FILE || join(HERE, "..", "..", ".voice-bridge-tab");
 
 const log = (m) => process.stderr.write(`[claude-voice] audio/browser: ${m}\n`);
 
@@ -59,6 +63,24 @@ export function loadOrCreateToken(file = TOKEN_FILE) {
     log(`could not persist the bridge token (${String(err?.message ?? err)}) — the tab will not survive a restart`);
   }
   return token;
+}
+
+// A tab attached: remember when, for the next process to read.
+function noteTabSeen(file = SEEN_FILE) {
+  try {
+    writeFileSync(file, `${new Date().toISOString()}\n`, { mode: 0o600 });
+  } catch {
+    // Losing this only costs an extra tab; it must never cost the call.
+  }
+}
+
+// Milliseconds since a tab last attached, from any process. Infinity when none ever has.
+export function msSinceTabSeen(file = SEEN_FILE) {
+  try {
+    return Date.now() - statSync(file).mtimeMs;
+  } catch {
+    return Infinity;
+  }
 }
 
 function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } = {}) {
@@ -120,6 +142,7 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
       socket = ws;
       ws.binaryType = "nodebuffer";
       log("tab connected");
+      noteTabSeen();
       send({ t: "hello" });
       sendMicState();
       for (const r of waiters.splice(0)) r(true);
@@ -260,6 +283,9 @@ function openInBrowser(url) {
 export async function ensureBrowserAudio({
   waitMs = Number(process.env.VOICE_BROWSER_WAIT_MS) || 20000,
   reconnectMs = Number(process.env.VOICE_BROWSER_RECONNECT_MS) || 3000,
+  // How long a tab seen once is assumed to still be there. Opening a second tab is worse than
+  // waiting: the new one asks for the microphone again, while the call is already waiting.
+  tabMemoryMs = Number(process.env.VOICE_BROWSER_TAB_MEMORY_MS) || 600000,
   autoOpen = process.env.VOICE_BROWSER_OPEN !== "0",
 } = {}) {
   if (!bridge) {
@@ -274,11 +300,17 @@ export async function ensureBrowserAudio({
   }
   if (bridge.connected()) return true;
 
-  // Give a tab that is already open the chance to come back before opening another one. It
-  // retries every two seconds, and "not connected this millisecond" is not the same as "there
-  // is no tab" — in VOICE_DEV each call builds a fresh bridge, so without this wait every
-  // single call opened a new tab, and the tabs then fought each other over the connection.
-  if (await bridge.waitForTab(reconnectMs)) {
+  // Give a tab that is already open the chance to come back before opening another one. In
+  // VOICE_DEV each call builds a fresh bridge, so "nothing is connected this millisecond" is
+  // the normal state at the start of every call, and taking it to mean "there is no tab" is
+  // what filled the browser with tabs that then fought each other. A tab seen recently — by
+  // ANY process, which is the point of writing it down — is worth waiting the long wait for.
+  const seenMs = msSinceTabSeen();
+  const patience = seenMs < tabMemoryMs ? waitMs : reconnectMs;
+  if (seenMs < tabMemoryMs) {
+    log(`a tab was open ${Math.round(seenMs / 1000)}s ago — waiting for it rather than opening another`);
+  }
+  if (await bridge.waitForTab(patience)) {
     log("an open tab reconnected — not opening another one");
     return true;
   }
