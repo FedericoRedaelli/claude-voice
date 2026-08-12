@@ -153,12 +153,25 @@ knowing:
 | `VOICE_BARGE_IN_LEVEL` | `12` | RMS % that counts as interrupting the voice |
 | `VOICE_RECORD_ONSET_MS` | `8000` | give up on an answer that never starts |
 | `VOICE_BROWSER_PORT` | `8787` | the bridge's localhost port |
+| `VOICE_DEV` | `0` | run each call in a fresh process — see below |
 
 **About the accent.** MAI-Voice-2-Flash ships four voices and none of them is Italian (every
 `it-IT-*` name is a 502). The model is multilingual, so Harper reads Italian correctly but with
 an English accent. `VOICE_TTS_MODEL` points at a model with a native Italian voice —
 `minimax/speech-2.8-turbo`, `qwen/qwen-audio-3.0-tts-flash` or
 `google/gemini-3.1-flash-tts-preview` — same key, same interface, one line in `.env`.
+
+## Working on it
+
+ESM modules are evaluated once per process, and the MCP server is long-lived: the first
+`talk_to_user` call freezes `call.mjs`, `config.mjs` and the audio backend in memory for the
+rest of the session, so a code change is invisible until Claude Code is restarted.
+
+`VOICE_DEV=1` runs each call in a fresh child process instead (`scripts/run-call.mjs`, one JSON
+object in on stdin, one out on stdout). A code change lands on the next call. It costs a node
+startup and a tab reconnection — the page notices within two seconds and the token is
+persistent, so the microphone permission survives — which is a fine trade while editing and a
+bad one otherwise.
 
 ## Troubleshooting
 
@@ -176,7 +189,7 @@ its echo canceller: reload it and allow the microphone again.
 ## Tests
 
 ```bash
-npm test          # 65 tests, none of them touches the network
+npm test          # 69 tests, none of them touches the network
 npm run smoke:mcp # the MCP server boots and exposes the tool
 ```
 

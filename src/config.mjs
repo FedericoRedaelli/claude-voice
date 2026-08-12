@@ -148,6 +148,10 @@ export const config = {
   // tool call never hangs forever.
   timeoutMs: Number(process.env.VOICE_TIMEOUT_MS) || 120000,
 
+  // "1" runs every call in a fresh child process, so editing the code does not need Claude
+  // Code restarted to take effect. Costs a node startup and a tab reconnection per call.
+  dev: bool(process.env.VOICE_DEV),
+
   // "1" disables the Stop-hook nudge (read directly in the hook too, as its own process).
   disabled: bool(process.env.VOICE_DISABLE),
 };

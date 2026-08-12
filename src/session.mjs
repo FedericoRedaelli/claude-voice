@@ -15,6 +15,13 @@ export async function runSession({ message, options = [], spoken = "", signal })
   if (config.mode === "text") return runTextSession({ message, options, signal });
 
   try {
+    // Development mode runs the call in a fresh process, so a code change is visible on the
+    // next call rather than on the next restart of Claude Code. See dev.mjs.
+    if (config.dev) {
+      const { runInChild } = await import("./dev.mjs");
+      return await runInChild({ message, options, spoken, signal });
+    }
+
     // Lazy on purpose: text mode must never open a port, load a module, or need a key.
     const [{ runCall }, { loadModules }] = await Promise.all([
       import("./call.mjs"),
