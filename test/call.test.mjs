@@ -148,6 +148,21 @@ test("the user's own words outrank the brain when they disagree about which opti
   assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" });
 });
 
+test("an empty answer from the brain is asked again, not reported as a decision", async () => {
+  const f = fakes({
+    heard: ["la prima", "la prima"],
+    routed: [
+      { kind: "empty" },
+      { kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } },
+    ],
+  });
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.deepEqual(f.log.spoken, ["s", cfg.retryLine]);
+  assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" });
+});
+
 test("a conversation that never lands is closed by the turn ceiling", async () => {
   const f = fakes({
     heard: Array(20).fill("e poi?"),

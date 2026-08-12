@@ -54,6 +54,9 @@ Rules that matter more than being helpful:
 // it truly is not, hand the raw words to Claude as an instruction. Claude is one turn away.
 export function parseRouted(raw, options = []) {
   const text = String(raw ?? "").trim();
+  // A reasoning model that spent its budget thinking answers with nothing at all. That is not
+  // an instruction from the user, and forwarding it as one would hand Claude a blank decision.
+  if (!text) return { kind: "empty" };
   const asMessage = { kind: "decide", decision: { kind: "message", value: text } };
 
   const start = text.indexOf("{");
@@ -101,7 +104,13 @@ export function createBrain({ fetchImpl = globalThis.fetch, cfg = config } = {})
         body: JSON.stringify({
           model: cfg.brainModel,
           temperature: 0.2,
-          max_tokens: 300,
+          // GPT-OSS is a reasoning model: the budget covers its thinking as well as its
+          // answer. At 300 it spent the lot thinking and returned an empty message about one
+          // turn in three. Low effort plus room to finish is what a router needs — it is
+          // deciding which of four shapes a sentence has, not solving anything.
+          max_tokens: 800,
+          reasoning: { effort: "low" },
+          ...(cfg.brainSort ? { provider: { sort: cfg.brainSort } } : {}),
           messages: [
             { role: "system", content: systemPrompt({ message, options, lang: cfg.lang }) },
             ...turns,

@@ -8,6 +8,7 @@ const cfg = {
   openrouterKey: "sk-test",
   baseUrl: "https://openrouter.ai/api/v1",
   brainModel: "openai/gpt-oss-20b",
+  brainSort: "throughput",
   lang: "Italiano",
 };
 
@@ -99,6 +100,35 @@ test("route sends Claude's full message as context and the turns as history", as
   assert.match(system.content, /Italiano/, "and the language to answer in");
 
   assert.deepEqual(body.messages.slice(1), [{ role: "user", content: "cosa hai cambiato?" }]);
+});
+
+test("the request asks for a fast provider and leaves the model room to finish", async () => {
+  const { calls, fetchImpl } = fakeFetch(reply('{"action":"speak","say":"ok"}'));
+  await createBrain({ fetchImpl, cfg }).route({ message: "m", options: [], turns: [] });
+
+  // Measured: the same model runs 0.3 s on one provider and 20.6 s on another.
+  assert.deepEqual(calls[0].body.provider, { sort: "throughput" });
+  // GPT-OSS spends the token budget thinking before it answers; at 300 it returned nothing
+  // about one turn in three.
+  assert.equal(calls[0].body.reasoning.effort, "low");
+  assert.ok(calls[0].body.max_tokens >= 800);
+});
+
+test("no sort is sent when the choice is handed back to the router", async () => {
+  const { calls, fetchImpl } = fakeFetch(reply('{"action":"speak","say":"ok"}'));
+  await createBrain({ fetchImpl, cfg: { ...cfg, brainSort: "" } }).route({
+    message: "m",
+    options: [],
+    turns: [],
+  });
+  assert.ok(!("provider" in calls[0].body));
+});
+
+test("an empty answer is not an empty instruction for Claude", () => {
+  // A truncated reasoning model returns content: "". Passing that through as a message would
+  // hand Claude a blank instruction and call it a decision.
+  assert.deepEqual(parseRouted("", OPTIONS), { kind: "empty" });
+  assert.deepEqual(parseRouted("   ", OPTIONS), { kind: "empty" });
 });
 
 test("an error response throws with the status", async () => {

@@ -59,6 +59,15 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     const routed = await brain.route({ message, options, turns });
     if (stopped()) return { kind: "end" };
 
+    // The brain answered with nothing. Ask again rather than reporting a blank decision: one
+    // more synthesis is cheap, and a turn Claude cannot read is worse than a repeated question.
+    if (routed.kind === "empty") {
+      log("the brain returned an empty answer — asking again");
+      turns.pop();
+      say = cfg.retryLine;
+      continue;
+    }
+
     if (routed.kind === "speak") {
       turns.push({ role: "assistant", content: routed.text });
       say = routed.text;

@@ -55,6 +55,13 @@ export const config = {
   sttModel: process.env.VOICE_STT_MODEL || "openai/whisper-large-v3-turbo",
   brainModel: process.env.VOICE_BRAIN_MODEL || "openai/gpt-oss-20b",
 
+  // How OpenRouter picks which provider serves the brain. Left to itself it spreads the same
+  // model across providers that differ by more than an order of magnitude — measured on this
+  // model: 0.3-0.5 s on the fastest, 3-6 s typical, and one turn that took 20.6 s. In a
+  // conversation that gap is the difference between an answer and an awkward silence, so we
+  // ask for throughput by name. Set VOICE_BRAIN_SORT="" to hand the choice back.
+  brainSort: process.env.VOICE_BRAIN_SORT === undefined ? "throughput" : process.env.VOICE_BRAIN_SORT,
+
   // Language the voice speaks in. Default English regardless of what you speak.
   lang: process.env.VOICE_LANG || "English",
 
