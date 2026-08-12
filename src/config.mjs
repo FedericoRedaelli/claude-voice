@@ -62,6 +62,24 @@ export const config = {
   // ask for throughput by name. Set VOICE_BRAIN_SORT="" to hand the choice back.
   brainSort: process.env.VOICE_BRAIN_SORT === undefined ? "throughput" : process.env.VOICE_BRAIN_SORT,
 
+  // Pin the brain to named providers instead (comma-separated slugs, e.g. "amazon-bedrock").
+  // Overrides the sort. Empty = let the sort decide.
+  //
+  // Advertised throughput is the wrong number to pick on: our answer is a thirty-token JSON
+  // object, so the time is prefill and queueing, not generation. Measured on this model,
+  // Amazon Bedrock at 295 TPS answered in 499 ms median and Groq at 160 TPS in 264 ms.
+  brainProviders: (process.env.VOICE_BRAIN_PROVIDER || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
+  // Ask the brain for a JSON object rather than free text. Not a formality: GPT-OSS splits its
+  // output into a reasoning channel and a final one, and without this the final channel came
+  // back EMPTY 4 times in 10 with the reasoning plainly holding the answer. Some providers
+  // (Amazon Bedrock among them) do not support it, and OpenRouter answers "No endpoints found"
+  // rather than ignoring it — which is when you set VOICE_BRAIN_JSON=0 and accept the empties.
+  brainJson: process.env.VOICE_BRAIN_JSON !== "0",
+
   // Language the voice speaks in. Default English regardless of what you speak.
   lang: process.env.VOICE_LANG || "English",
 

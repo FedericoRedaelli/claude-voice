@@ -110,7 +110,19 @@ export function createBrain({ fetchImpl = globalThis.fetch, cfg = config } = {})
           // deciding which of four shapes a sentence has, not solving anything.
           max_tokens: 800,
           reasoning: { effort: "low" },
-          ...(cfg.brainSort ? { provider: { sort: cfg.brainSort } } : {}),
+          // Not belt and braces — the one thing that makes this model usable. GPT-OSS splits
+          // its output into a reasoning channel and a final one, and on the fast providers the
+          // final channel came back EMPTY 4 times in 10 while the reasoning plainly said
+          // "choose option 1". finish_reason was "stop", so nothing looked wrong. Asking for a
+          // JSON object took that to 0 in 12, at the same latency.
+          ...(cfg.brainJson === false ? {} : { response_format: { type: "json_object" } }),
+          // Named providers win over the sort: naming one is a deliberate act, sorting is a
+          // preference. Neither is sent when neither is configured.
+          ...(cfg.brainProviders?.length
+            ? { provider: { only: cfg.brainProviders } }
+            : cfg.brainSort
+              ? { provider: { sort: cfg.brainSort } }
+              : {}),
           messages: [
             { role: "system", content: systemPrompt({ message, options, lang: cfg.lang }) },
             ...turns,

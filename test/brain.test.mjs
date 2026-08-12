@@ -112,6 +112,9 @@ test("the request asks for a fast provider and leaves the model room to finish",
   // about one turn in three.
   assert.equal(calls[0].body.reasoning.effort, "low");
   assert.ok(calls[0].body.max_tokens >= 800);
+  // Measured: without this the final channel came back empty 4 times in 10, with the
+  // reasoning channel plainly holding the answer and finish_reason saying "stop".
+  assert.deepEqual(calls[0].body.response_format, { type: "json_object" });
 });
 
 test("no sort is sent when the choice is handed back to the router", async () => {
@@ -122,6 +125,19 @@ test("no sort is sent when the choice is handed back to the router", async () =>
     turns: [],
   });
   assert.ok(!("provider" in calls[0].body));
+});
+
+test("a named provider wins over the sort, and can drop the JSON format it cannot do", async () => {
+  const { calls, fetchImpl } = fakeFetch(reply('{"action":"speak","say":"ok"}'));
+  await createBrain({
+    fetchImpl,
+    cfg: { ...cfg, brainProviders: ["amazon-bedrock"], brainJson: false },
+  }).route({ message: "m", options: [], turns: [] });
+
+  assert.deepEqual(calls[0].body.provider, { only: ["amazon-bedrock"] });
+  // OpenRouter answers "No endpoints found" rather than ignoring a format the provider cannot
+  // serve, so pinning one that lacks it has to be able to turn it off.
+  assert.ok(!("response_format" in calls[0].body));
 });
 
 test("an empty answer is not an empty instruction for Claude", () => {

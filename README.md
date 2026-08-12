@@ -143,6 +143,8 @@ knowing:
 | `VOICE_LANG` | `English` | the language spoken, and the transcriber's hint |
 | `VOICE_TTS_MODEL` / `VOICE_TTS_VOICE` | MAI-Voice-2-Flash / Harper | see the note below |
 | `VOICE_BRAIN_SORT` | `throughput` | how OpenRouter picks a provider for the brain |
+| `VOICE_BRAIN_PROVIDER` | — | pin named providers instead of sorting |
+| `VOICE_BRAIN_JSON` | `1` | ask for a JSON object; `0` only for providers that can't |
 | `VOICE_MAX_TURNS` | `8` | exchanges before the call closes itself |
 | `VOICE_WAIT_MS` | `30000` | how long the button stays armed |
 | `VOICE_RECORD_SILENCE_MS` | `800` | trailing silence that ends your turn |
@@ -171,7 +173,7 @@ its echo canceller: reload it and allow the microphone again.
 ## Tests
 
 ```bash
-npm test          # 60 tests, none of them touches the network
+npm test          # 61 tests, none of them touches the network
 npm run smoke:mcp # the MCP server boots and exposes the tool
 ```
 

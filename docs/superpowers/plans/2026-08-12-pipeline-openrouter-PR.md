@@ -35,10 +35,21 @@ Three findings that only a real call could produce:
 2. **OpenRouter's provider choice dominates perceived latency.** The same model ran 0.3 s on
    the fastest provider, 3–6 s typically, and once 20.6 s. `provider: { sort: "throughput" }`
    is now the default, and `VOICE_BRAIN_SORT=""` hands the choice back.
-3. **GPT-OSS is a reasoning model and `max_tokens` covers its thinking.** At 300 it spent the
-   whole budget thinking and returned an empty message about one turn in three. Low effort plus
-   800 tokens fixes the cause; `parseRouted` returning `kind:"empty"` fixes the symptom — a
-   blank content was being forwarded to Claude as a blank instruction and called a decision.
+3. **GPT-OSS answers on two channels and the final one is often empty.** At `max_tokens: 300`
+   it spent the whole budget thinking; raising it to 800 with low reasoning effort did not fix
+   the problem, because the cause was not truncation — `finish_reason` was `stop` and the
+   reasoning channel plainly held the answer ("choose option 1") while the content came back
+   as `""` 4 times in 10. `response_format: {type: "json_object"}` took that to 0 in 12 at the
+   same latency. `parseRouted` returning `kind:"empty"` covers the remainder, because a blank
+   content was otherwise forwarded to Claude as a blank instruction and called a decision. It
+   fired once during the live call, which is how the rate was noticed at all.
+4. **Advertised throughput is the wrong number to choose a provider on.** Amazon Bedrock
+   advertises 295 TPS against Groq's 160 and costs half as much per output token, but answered
+   in 499 ms median against Groq's 264 ms: a thirty-token JSON object is prefill and queueing,
+   not generation. Bedrock also cannot serve `response_format` — OpenRouter answers "No
+   endpoints found" rather than ignoring it — so pinning it costs 4 empty answers in 12, and
+   an empty answer costs a whole extra turn. `VOICE_BRAIN_PROVIDER` and `VOICE_BRAIN_JSON`
+   make the choice a variable rather than a code change.
 
 The accent is the one open question left, and it needs an ear rather than a clock:
 MAI-Voice-2-Flash has four voices and none is Italian, so Harper reads Italian correctly with an
@@ -61,15 +72,16 @@ started from, and it happened to be sitting inside the class being removed.
 
 ## Verification
 
-- `npm test` — 60 tests across 9 files, none of them touches the network
+- `npm test` — 61 tests across 9 files, none of them touches the network
 - `npm run smoke:mcp` — green, and green again with `VOICE_MODE=text` (no key, no browser)
 - End to end through all three real models with a scripted sound card: question → clarification
   → answer → validated choice
 - The websocket protocol (arm, button, play/drain, record, receipt) driven headlessly by a
   stand-in for the page
 
-Not verified by machine: the live microphone round trip. `npm run try` is the one step that
-needs a person at a desk.
+One live call with a real microphone, start to finish: question, spoken clarification, spoken
+answer, and `{"kind":"choice","value":"Apri la pull request"}` back to Claude. Per stage, with
+the microphone in the loop: TTS 1.2-2.3 s, STT 0.31-0.34 s, brain 0.29-0.43 s.
 
 Spec: `docs/superpowers/specs/2026-08-12-pipeline-openrouter-design.md`
 Plan: `docs/superpowers/plans/2026-08-12-pipeline-openrouter.md`
