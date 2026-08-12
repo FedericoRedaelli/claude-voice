@@ -6,3 +6,6 @@ node_modules/
 boot-debug.log
 voice-debug.log
 models/
+vendor/
+# The bridge token: same standing as .env, and the tab's URL depends on it.
+.voice-bridge-token

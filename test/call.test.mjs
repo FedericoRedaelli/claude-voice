@@ -7,7 +7,9 @@ const OPTIONS = ["Apri la pull request", "Fai altri test"];
 const cfg = {
   waitMs: 30000,
   maxTurns: 8,
+  langCode: "it",
   retryLine: "Non ho sentito. Puoi ripetere?",
+  confirmLine: "Non sono sicuro di quale hai scelto. Quale?",
 };
 
 // Fakes with a memory: every test asserts on what the modules were asked to do, which is the
@@ -111,6 +113,39 @@ test("silence is asked to repeat, without spending a turn on the model", async (
 
   await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
   assert.deepEqual(f.log.spoken, ["s", "Non ho sentito. Puoi ripetere?"]);
+});
+
+test("a transcript in the wrong alphabet is treated as silence, not as an answer", async () => {
+  // A real call: an Italian turn came back as Korean and a decision was built on it. It must
+  // never reach the brain — that is what makes it look like a considered answer.
+  let routeCalls = 0;
+  const f = fakes({ heard: ["정답.", "la prima"] });
+  f.brain.route = async () => {
+    routeCalls++;
+    return { kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } };
+  };
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.equal(routeCalls, 1, "the garbled turn never got routed");
+  assert.deepEqual(f.log.spoken, ["s", cfg.retryLine]);
+  assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" });
+});
+
+test("the user's own words outrank the brain when they disagree about which option", async () => {
+  // "ho detto la prima e ha fatto la terza": the failure the whole project started from.
+  const f = fakes({
+    heard: ["la prima", "la prima, dicevo"],
+    routed: [
+      { kind: "decide", decision: { kind: "choice", value: OPTIONS[1], optionIndex: 2 } },
+      { kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } },
+    ],
+  });
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.deepEqual(f.log.spoken, ["s", cfg.confirmLine], "it asked instead of guessing");
+  assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" });
 });
 
 test("a conversation that never lands is closed by the turn ceiling", async () => {

@@ -11,18 +11,10 @@
     "server": "node src/server.mjs",
     "test": "node --test --test-timeout=15000 test/*.test.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
-    "smoke:hook": "node scripts/smoke-hook.mjs",
-    "test:realtime": "node scripts/test-realtime-noaudio.mjs",
-    "test:voice": "node scripts/selftest-voice.mjs",
-    "mic": "node scripts/mic-check.mjs",
-    "audio": "node scripts/audio-check.mjs",
-    "try": "node scripts/try-voice.mjs",
-    "try:browser": "VOICE_AUDIO=browser node scripts/try-voice.mjs",
-    "setup:wake": "node scripts/setup-wake.mjs"
+    "try": "node scripts/try-call.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@openai/agents": "^0.1.0",
     "ws": "^8.18.0",
     "zod": "^3.23.0"
   }

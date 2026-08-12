@@ -4,24 +4,37 @@
 import { config } from "./config.mjs";
 import { runTextSession } from "./text.mjs";
 
+let modules = null;
+
 // `signal` aborts when Claude Code cancels the tool call (the user pressed Esc): the session
 // must go silent and return, not keep talking to nobody.
-// `spoken` is the opening line Claude wrote for the agent to read verbatim. Text mode ignores
-// it on purpose: it prints `message`, which is the full version, and reading a line meant for
-// the ear off a screen would just be a worse summary of what is already there.
+// `spoken` is the opening line Claude wrote to be read verbatim. Text mode ignores it on
+// purpose: it prints `message`, which is the full version, and reading a line meant for the
+// ear off a screen would just be a worse summary of what is already there.
 export async function runSession({ message, options = [], spoken = "", signal }) {
-  if (config.mode === "text") {
+  if (config.mode === "text") return runTextSession({ message, options, signal });
+
+  try {
+    // Lazy on purpose: text mode must never open a port, load a module, or need a key.
+    const [{ runCall }, { loadModules }] = await Promise.all([
+      import("./call.mjs"),
+      import("./modules.mjs"),
+    ]);
+    modules = modules || (await loadModules());
+    return await runCall({ message, options, spoken, signal, modules });
+  } catch (err) {
+    // A missing key, a provider outage, a tab that never opened: the voice is optional, the
+    // decision is not. Fall back to the terminal rather than losing Claude's turn.
+    process.stderr.write(
+      `[claude-voice] voice path failed (${String(err?.message ?? err)}) — falling back to text\n`,
+    );
     return runTextSession({ message, options, signal });
   }
-  // Lazy-import the voice path so text mode never loads the SDK or touches sox.
-  voiceModule = voiceModule || (await import("./realtime.mjs"));
-  return voiceModule.runVoiceSession({ message, options, spoken, signal });
 }
 
-let voiceModule = null;
-
-// Server shutdown (SIGTERM/SIGINT, stdin closed): silence any live call. No-op if the voice
-// path was never loaded — we must not import the SDK just to shut down.
-export function abortActiveSessions(why) {
-  voiceModule?.abortActiveVoiceSessions?.(why);
+// Server shutdown (SIGTERM/SIGINT, stdin closed): release the port and let the process exit.
+// No-op if the voice path was never loaded — we must not open a bridge just to shut one down.
+export function abortActiveSessions() {
+  modules?.audio?.close?.();
+  modules = null;
 }

@@ -11,7 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { abortActiveSessions, runSession } from "./session.mjs";
 
-// Safety net: a stray audio-pipe error (e.g. sox EPIPE) must never crash the MCP server,
+// Safety net: a stray socket or audio error must never crash the MCP server,
 // or every subsequent talk_to_user call would hang ("MCP failed to connect"). Log, survive.
 process.on("uncaughtException", (e) =>
   process.stderr.write(`[claude-voice] uncaught (ignored): ${e?.stack ?? e}\n`),
@@ -71,7 +71,7 @@ server.registerTool(
   },
 );
 
-// Quitting Claude Code kills or detaches this process; make sure no `sox` keeps talking.
+// Quitting Claude Code kills or detaches this process; make sure the bridge port is released.
 // stdin closing is the normal signal that the client is gone.
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(sig, () => {

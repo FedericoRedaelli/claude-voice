@@ -1,4 +1,4 @@
-// Text-mode fallback for the decision loop. No OpenAI, no sox — pure local I/O.
+// Text-mode fallback for the decision loop. No key, no browser, no audio — pure local I/O.
 //
 // The MCP server owns stdin/stdout (that is the JSON-RPC transport), so this MUST talk to
 // the terminal directly via /dev/tty. It prints the summary + numbered options and reads a

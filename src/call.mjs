@@ -12,7 +12,7 @@
 // testable with four fakes and no ports.
 
 import { config } from "./config.mjs";
-import { normalizeDecision } from "./policy.mjs";
+import { choiceDisagreement, looksGarbled, normalizeDecision } from "./policy.mjs";
 
 const log = (m) => process.stderr.write(`[claude-voice] call: ${m}\n`);
 
@@ -45,9 +45,11 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     const heard = await stt.transcribe(await audio.record());
     if (stopped()) return { kind: "end" };
 
-    if (!heard) {
-      // Silence is not a turn. Asking again costs one synthesis; sending an empty transcript
-      // to the model costs a turn AND invites it to answer for the user.
+    // Silence is not a turn, and neither is a transcript in the wrong alphabet: that is the
+    // transcriber inventing words out of room noise. Asking again costs one synthesis;
+    // sending either to the brain costs a turn AND invites it to answer for the user.
+    if (!heard || looksGarbled(heard, cfg.langCode)) {
+      if (heard) log(`transcript ${JSON.stringify(heard)} is not ${cfg.langCode} — asking again`);
       say = cfg.retryLine;
       continue;
     }
@@ -63,7 +65,18 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
       continue;
     }
 
-    // S5 — policy has the last word on what Claude is told, exactly as before.
+    // Two independent sources have to agree before Claude acts on a position: what the user
+    // said and what the brain decided it meant. When they don't, nobody wins the argument —
+    // we read the disagreement back and let the user settle it.
+    const clash = choiceDisagreement(routed.decision, heard);
+    if (clash) {
+      log(`refusing the choice: ${clash}`);
+      turns.push({ role: "assistant", content: cfg.confirmLine });
+      say = cfg.confirmLine;
+      continue;
+    }
+
+    // S5 — policy has the last word on what Claude is told.
     const decision = normalizeDecision(routed.decision, options, log);
     audio.report({ decision, heard, spoken: say, message, options });
     return decision;
