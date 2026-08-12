@@ -150,7 +150,8 @@ knowing:
 | `VOICE_RECORD_SILENCE_MS` | `1300` | trailing silence that ends your turn |
 | `VOICE_SPEECH_LEVEL` | `3` | RMS % that counts as somebody starting to talk |
 | `VOICE_HOLD_LEVEL` | `1.5` | RMS % that counts as somebody still talking |
-| `VOICE_BARGE_IN_LEVEL` | `12` | RMS % that counts as interrupting the voice |
+| `VOICE_BARGE_IN` | `0` | let your voice cut the reply short — see below |
+| `VOICE_BARGE_IN_LEVEL` | `12` | RMS % that counts as interrupting, when it is on |
 | `VOICE_RECORD_ONSET_MS` | `8000` | give up on an answer that never starts |
 | `VOICE_BROWSER_PORT` | `8787` | the bridge's localhost port |
 | `VOICE_DEV` | `0` | run each call in a fresh process — see below |
@@ -181,8 +182,10 @@ stops it trying. If the port is taken by an older server, `VOICE_BROWSER_PORT` m
 **The tab is there but nothing happens.** The **Parla** button is armed by the call, not by the
 tab: it lights up when Claude is actually waiting for you.
 
-**It hears itself.** It shouldn't — that is what the browser is for. If it does, the tab lost
-its echo canceller: reload it and allow the microphone again.
+**It cuts its own sentence short.** That is barge-in, and it is off by default for exactly
+this reason: with the microphone open during playback, an echo canceller that does not fully
+subtract the page's own audio makes the voice interrupt itself. `VOICE_BARGE_IN=1` turns it
+back on if your setup handles it — headphones always do.
 
 **"OPENROUTER_API_KEY is not set".** Put it in `.env`, or run with `VOICE_MODE=text`.
 

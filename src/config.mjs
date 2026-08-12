@@ -117,11 +117,15 @@ export const config = {
   // a crash. Reached: the call asks again.
   recordOnsetMs: Number(process.env.VOICE_RECORD_ONSET_MS) || 8000,
 
-  // Interrupting the voice is a DIFFERENT judgement from answering it, and it used to share
-  // the threshold above. It shouldn't: a faint hum sustained for a moment cut a sentence in
-  // half, and then nobody was talking to record. Interrupting has to look like a voice — the
-  // teens, not the low single digits — and last longer.
-  bargeIn: process.env.VOICE_BARGE_IN !== "0",
+  // Barge-in listens to the room WHILE the voice is talking, so that you can cut it off. It is
+  // off by default because it kept cutting ITSELF off: the browser's echo canceller is meant
+  // to subtract what the page is playing from what the microphone hears, and when it does not
+  // fully manage that, the voice clears its own playback partway through a sentence. Raising
+  // the threshold to something only a real voice reaches did not end it.
+  //
+  // The feature is worth little — the sentences are two seconds long — and the failure is
+  // worth a lot: you lose the question you were being asked. VOICE_BARGE_IN=1 turns it on.
+  bargeIn: process.env.VOICE_BARGE_IN === "1",
   bargeInLevel: Number(process.env.VOICE_BARGE_IN_LEVEL) || 12,
   bargeInMs: Number(process.env.VOICE_BARGE_IN_MS) || 600,
 

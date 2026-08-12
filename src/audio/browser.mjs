@@ -419,9 +419,11 @@ export function createAudio({ cfg = config } = {}) {
       bridge.clear();
       bridge.sendPcm(pcm);
 
-      // Listening while we talk costs nothing to get wrong in one direction and a whole turn
-      // in the other, so it can be switched off entirely.
-      if (cfg.bargeIn === false) {
+      // Off by default: with the microphone open during playback the voice cut itself off
+      // partway through a sentence, which loses the question rather than answering it. Leaving
+      // the mic shut here also means nothing is captured until it is actually our turn to
+      // listen.
+      if (!cfg.bargeIn) {
         await bridge.drain(Math.min(durationMs(pcm) + 2000, 20000));
         return { interrupted: false };
       }
