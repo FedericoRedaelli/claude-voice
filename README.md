@@ -83,8 +83,11 @@ not depend on the model remembering. `VOICE_DISABLE=1` turns the nudge off.
 5. Answer. Ask a clarifying question if you want — the call stays open until you decide.
 6. The tab shows a receipt of exactly what went back to Claude.
 
-Say nothing for 30 seconds and the call closes with `{"kind":"end"}`: Claude stops, you pick it
-up at the keyboard whenever you get back. Pressing Esc in Claude Code does the same, at once.
+While it waits, a soft tick every few seconds keeps saying "Claude is waiting" — one beep at
+the start is a sound you had to be present for, a pulse is a state you can walk back into.
+Nothing is paid for while it pulses. Ignore it for three minutes and the call closes with
+`{"kind":"end"}`: Claude stops, you pick it up at the keyboard whenever you get back. Pressing
+Esc in Claude Code does the same, at once.
 
 Try a whole call by hand:
 
@@ -146,7 +149,8 @@ knowing:
 | `VOICE_BRAIN_PROVIDER` | — | pin named providers instead of sorting |
 | `VOICE_BRAIN_JSON` | `1` | ask for a JSON object; `0` only for providers that can't |
 | `VOICE_MAX_TURNS` | `8` | exchanges before the call closes itself |
-| `VOICE_WAIT_MS` | `30000` | how long the button stays armed |
+| `VOICE_WAIT_MS` | `180000` | how long the button stays armed |
+| `VOICE_WAIT_TICK_MS` | `5000` | how often it pulses while waiting; 0 for one cue |
 | `VOICE_RECORD_SILENCE_MS` | `1300` | trailing silence that ends your turn |
 | `VOICE_SPEECH_LEVEL` | `3` | RMS % that counts as somebody starting to talk |
 | `VOICE_HOLD_LEVEL` | `1.5` | RMS % that counts as somebody still talking |

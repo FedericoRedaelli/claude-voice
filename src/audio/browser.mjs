@@ -458,8 +458,20 @@ export function createAudio({ cfg = config } = {}) {
       return true;
     },
 
-    waitForButton(ms) {
-      return bridge ? bridge.waitForStart(ms) : Promise.resolve(false);
+    // Waiting is a state, not a moment. The opening cue is one sound you had to be in the room
+    // for; this keeps a soft pulse going for as long as the button is armed, so you can walk
+    // back in and know something is waiting for you. It costs nothing but the tone — no
+    // microphone, no model, nothing billed until the button is pressed.
+    waitForButton(ms, { tickMs = cfg.waitTickMs, volume = cfg.waitTickVolume } = {}) {
+      if (!bridge) return Promise.resolve(false);
+      if (!tickMs) return bridge.waitForStart(ms);
+
+      const timer = setInterval(
+        () => bridge?.sendPcm(beepPcm({ freq: 660, ms: 90, volume })),
+        tickMs,
+      );
+      if (timer.unref) timer.unref();
+      return bridge.waitForStart(ms).finally(() => clearInterval(timer));
     },
 
     async play(pcm, { bargeInMs = cfg.bargeInMs, level = cfg.bargeInLevel } = {}) {

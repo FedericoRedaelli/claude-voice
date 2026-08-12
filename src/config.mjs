@@ -132,7 +132,23 @@ export const config = {
   // How long the page keeps the button armed before giving up and returning {kind:"end"}
   // without ever opening the call. This is what keeps the voice from talking to an empty
   // room when you are away from the desk.
-  waitMs: process.env.VOICE_WAIT_MS === undefined ? 30000 : Number(process.env.VOICE_WAIT_MS) || 0,
+  //
+  // Three minutes, not thirty seconds: the whole point is that you can be away from the desk,
+  // and a window you have to be sitting at the keyboard to catch defeats it. Nothing is paid
+  // for while it waits, so the only cost of waiting longer is the cue.
+  waitMs: process.env.VOICE_WAIT_MS === undefined ? 180000 : Number(process.env.VOICE_WAIT_MS) || 0,
+
+  // While it waits, a soft tick at this interval keeps saying "Claude is waiting". One beep at
+  // the start is a sound you had to be present for; a pulse is a state you can walk back into.
+  // 0 leaves just the opening cue.
+  waitTickMs: process.env.VOICE_WAIT_TICK_MS === undefined ? 5000 : Number(process.env.VOICE_WAIT_TICK_MS) || 0,
+
+  // Volume of that tick (0-1), deliberately far below the opening cue: it repeats for minutes,
+  // in a room where you are doing something else.
+  waitTickVolume: (() => {
+    const n = Number(process.env.VOICE_WAIT_TICK_VOLUME);
+    return n > 0 && n <= 1 ? n : 0.06;
+  })(),
 
   // What to say when a turn came back empty, or in an alphabet nobody spoke. Both are read
   // out loud, so they stay short.
