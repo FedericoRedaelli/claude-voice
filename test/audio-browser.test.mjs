@@ -72,6 +72,33 @@ test("the onset timer only runs until somebody starts, not during their pauses",
   assert.ok(pcm.length > 20 * SPEECH.length, "both halves of the sentence are kept");
 });
 
+test("a weak syllable mid-sentence does not end the turn", async () => {
+  // The transcript that exposed this was cut mid-clause: "Anche in questo caso non hai
+  // concluso perché si". One threshold answered both "have they started" and "are they still
+  // going", and an unstressed syllable dips under the first one.
+  const WEAK = beepPcm({ ms: 20, volume: 0.05 }); // audible, well under the start threshold
+  const mic = fakeMic([
+    ...times(5, SPEECH),
+    ...times(30, WEAK), // 600 ms of quiet speech — past the 400 ms silence window
+    ...times(5, SPEECH),
+    ...times(40, SILENCE),
+  ]);
+  const rec = createRecorder({ startMic: mic });
+
+  const pcm = await rec.record({ silenceMs: 400, minMs: 100, maxMs: 30000, level: 3, holdLevel: 1 });
+
+  assert.ok(pcm.length >= 40 * SPEECH.length, "the whole sentence is kept, dip included");
+});
+
+test("the hold level does not let room tone hold a turn open forever", async () => {
+  const mic = fakeMic([...times(5, SPEECH), ...times(100, SILENCE)]);
+  const rec = createRecorder({ startMic: mic });
+
+  const pcm = await rec.record({ silenceMs: 400, minMs: 100, maxMs: 30000, level: 3, holdLevel: 1 });
+
+  assert.ok(pcm.length < 30 * SILENCE.length, "true silence still closes the turn");
+});
+
 test("a cough shorter than minMs is not an utterance", async () => {
   const mic = fakeMic([SPEECH, ...times(40, SILENCE)]);
   const rec = createRecorder({ startMic: mic });

@@ -96,13 +96,21 @@ export const config = {
   // Utterance capture, all in audio time. Trailing silence that ends a turn, the floor below
   // which a "turn" is a cough, and the ceiling that stops a stuck mic from uploading a minute
   // of a room.
-  recordSilenceMs: Number(process.env.VOICE_RECORD_SILENCE_MS) || 800,
+  // 800 cut a real sentence in half at an ordinary comma. A pause you take while thinking is
+  // longer than one you take between words, and the two are indistinguishable from the level
+  // alone — so the window has to cover the thinking pause.
+  recordSilenceMs: Number(process.env.VOICE_RECORD_SILENCE_MS) || 1300,
   recordMinMs: Number(process.env.VOICE_RECORD_MIN_MS) || 250,
   recordMaxMs: Number(process.env.VOICE_RECORD_MAX_MS) || 30000,
 
   // Level (RMS %) that counts as somebody talking, once we are already listening for an
   // answer. Room tone is well under 1; a voice at laptop distance is in the teens.
   speechLevel: Number(process.env.VOICE_SPEECH_LEVEL) || 3,
+
+  // The level that counts as "still talking" once you have started. Lower than the one above
+  // on purpose: an unstressed syllable dips well below the level that opened the turn, and
+  // treating that dip as silence is what cut a sentence in half.
+  holdLevel: Number(process.env.VOICE_HOLD_LEVEL) || 1.5,
 
   // Give up on an answer that never starts. Without this a turn nobody speaks into hangs for
   // the whole recordMaxMs — half a minute of the page apparently doing nothing, which reads as

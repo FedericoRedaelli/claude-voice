@@ -312,7 +312,19 @@ export function startMic(onChunk) {
 // a device, and is therefore delivering no audio to count.
 export function createRecorder({ startMic: mic }) {
   return {
-    record({ silenceMs = 800, minMs = 250, maxMs = 30000, onsetMs = 8000, level = 3 } = {}) {
+    record({
+      silenceMs = 800,
+      minMs = 250,
+      maxMs = 30000,
+      onsetMs = 8000,
+      level = 3,
+      // Hysteresis. Deciding somebody has STARTED and deciding they are still going are two
+      // different questions, and one threshold answered both: an unstressed syllable dipped
+      // under it and the turn was cut mid-sentence — "Anche in questo caso non hai concluso
+      // perché si" is a real transcript. Starting stays strict; continuing is lenient, because
+      // the cost of the mistake is asymmetric. Cutting somebody off loses what they said.
+      holdLevel = level / 2,
+    } = {}) {
       return new Promise((resolve) => {
         const chunks = [];
         let speaking = false;
@@ -333,7 +345,8 @@ export function createRecorder({ startMic: mic }) {
         const handle = mic((chunk) => {
           if (done) return;
           const ms = durationMs(chunk);
-          const loud = rmsPct(chunk) >= level;
+          const rms = rmsPct(chunk);
+          const loud = speaking ? rms >= holdLevel : rms >= level;
           if (loud) {
             speaking = true;
             quietMs = 0;
@@ -419,6 +432,7 @@ export function createAudio({ cfg = config } = {}) {
         maxMs: cfg.recordMaxMs,
         onsetMs: cfg.recordOnsetMs,
         level: cfg.speechLevel,
+        holdLevel: cfg.holdLevel,
         ...opts,
       });
     },
