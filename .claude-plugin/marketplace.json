@@ -1,0 +1,11 @@
+{
+  "name": "claude-voice",
+  "owner": { "name": "Federico Redaelli" },
+  "plugins": [
+    {
+      "name": "claude-voice",
+      "source": "./",
+      "description": "Talk to Claude Code. Claude's stopping-point answer is read aloud, you reply by voice, your decision flows back."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+node_modules/
+.npm-cache/
+*.log
+.DS_Store
+.env
+boot-debug.log
+voice-debug.log
+models/
+vendor/
+# The bridge token: same standing as .env, and the tab's URL depends on it.
+.voice-bridge-token
+.voice-bridge-tab
+
+# Local Claude Code settings (personal: enabled plugins, hooks)
+.claude/settings.json
+.claude/settings.local.json

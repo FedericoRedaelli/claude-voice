@@ -1,0 +1,11 @@
+{
+  "name": "claude-voice",
+  "description": "A voice loop for Claude Code. At every stopping point Claude's answer is spoken aloud and you reply by voice; your decision flows back so Claude continues.",
+  "version": "0.2.0",
+  "author": { "name": "Federico Redaelli" },
+  "homepage": "https://github.com/FedericoRedaelli/claude-voice",
+  "keywords": ["voice", "tts", "stt", "openrouter", "mcp"],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "commands": "./commands"
+}
