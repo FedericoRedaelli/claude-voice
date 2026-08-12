@@ -26,9 +26,9 @@ order, every time.
      numbered out loud ("uno, ...; due, ...; tre, ... — quale?"). The numbering is what lets
      them answer "la prima". No code, no paths, no file names.
 
-The tool beeps and waits ~30s for the user to start talking. If they don't (they're away, or
-they'd rather type), it returns `{"kind":"end"}` — no voice session is ever opened. That's a
-normal outcome, not an error: acknowledge briefly and stop.
+The tool shows the question in a browser tab, beeps, and waits ~30s for the user to press
+"Parla". If they don't (they're away, or they'd rather type), it returns `{"kind":"end"}` — no
+model is ever called. That's a normal outcome, not an error: acknowledge briefly and stop.
 
 A `Stop` hook enforces this: if you try to stop without calling `talk_to_user`, you will be
 nudged to call it. Don't fight the nudge — call the tool.
