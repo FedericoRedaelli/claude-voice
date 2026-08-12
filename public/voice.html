@@ -164,6 +164,9 @@
       let ws = null;
       let capNode = null;
       let playNode = null;
+      // Set when the bridge hands control to another tab. Latching it stops this page
+      // reconnecting into a fight it has already lost.
+      let superseded = false;
       const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
       // Claude's question, written down. The same words are read out loud, but the options
@@ -225,9 +228,18 @@
           // is needed.
           else if (msg.t === "armed") startBtn.disabled = !msg.on;
           else if (msg.t === "report") showReport(msg);
+          // Another tab took over. Retrying would evict it two seconds later, and it would
+          // evict us back — with three tabs open that never settles, and the cue plays into
+          // whichever one is about to lose. Stand down instead.
+          else if (msg.t === "superseded") superseded = true;
         };
         ws.onclose = () => {
           setMic(false);
+          if (superseded) {
+            startBtn.disabled = true;
+            say('<span class="dot off"></span>Un\'altra scheda ha preso il controllo. Puoi chiudere questa.');
+            return;
+          }
           say('<span class="dot off"></span>Scollegato. Riprovo…');
           setTimeout(connect, 2000);
         };

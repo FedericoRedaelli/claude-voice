@@ -103,8 +103,15 @@ function createBridge({ port = Number(process.env.VOICE_BROWSER_PORT) || 8787 } 
     wss.handleUpgrade(req, sock, head, (ws) => {
       // Last tab wins: a stale tab left open from a previous run must not keep feeding us a
       // microphone nobody is looking at.
+      //
+      // The loser has to be TOLD, though, or it just reconnects. Every page retries every two
+      // seconds, so with three tabs open on the same URL they take turns evicting each other
+      // for as long as they are open — the log reads "tab connected / tab disconnected"
+      // forever, and the cue plays into whichever tab is about to lose, which is why nothing
+      // came out of the speakers.
       if (socket && socket !== ws) {
         try {
+          socket.send(JSON.stringify({ t: "superseded" }));
           socket.close();
         } catch {
           /* ignore */
@@ -252,6 +259,7 @@ function openInBrowser(url) {
 // the caller can close the call rather than talk into silence.
 export async function ensureBrowserAudio({
   waitMs = Number(process.env.VOICE_BROWSER_WAIT_MS) || 20000,
+  reconnectMs = Number(process.env.VOICE_BROWSER_RECONNECT_MS) || 3000,
   autoOpen = process.env.VOICE_BROWSER_OPEN !== "0",
 } = {}) {
   if (!bridge) {
@@ -265,6 +273,16 @@ export async function ensureBrowserAudio({
     bridge = b;
   }
   if (bridge.connected()) return true;
+
+  // Give a tab that is already open the chance to come back before opening another one. It
+  // retries every two seconds, and "not connected this millisecond" is not the same as "there
+  // is no tab" — in VOICE_DEV each call builds a fresh bridge, so without this wait every
+  // single call opened a new tab, and the tabs then fought each other over the connection.
+  if (await bridge.waitForTab(reconnectMs)) {
+    log("an open tab reconnected — not opening another one");
+    return true;
+  }
+
   if (autoOpen) {
     log(`opening ${bridge.url()} — leave that tab open, and allow the microphone once`);
     openInBrowser(bridge.url());
