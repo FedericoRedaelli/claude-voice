@@ -9,6 +9,10 @@
 // The cost is kept to what it has to be: port 0, so the OS picks a free one and nothing
 // collides; 127.0.0.1; an injected token, so the file the running session depends on is never
 // touched; and every socket closed in the teardown.
+//
+// One consequence to know before you debug the wrong thing: these are the only tests in the
+// suite that need a socket at all, so a sandbox that blocks loopback fails all eleven of them
+// at once while the other ninety pass. That reads like a real regression and is not one.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
