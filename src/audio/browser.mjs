@@ -344,6 +344,23 @@ export function startMic(onChunk) {
   };
 }
 
+// How long to wait for the page to finish speaking, in wall clock.
+//
+// This used to be `durationMs(pcm) + 2000` capped at 20 s, and the cap was the bug. While the
+// spoken lines were one or two sentences nothing ever reached it. The moment the brain started
+// EXPLAINING — several sentences, twenty seconds and more of audio — the wait ran out while the
+// tab was still talking: the call moved on, opened the microphone over the tail of its own
+// sentence, heard nothing usable, and the next line began with a clear() that cut the sentence
+// off mid-word. What you hear is the voice interrupting itself and then asking you to repeat.
+//
+// So the budget is proportional, with a floor for the short lines and a ceiling that exists
+// only so a tab that has gone away cannot hang a call forever — a tab that CLOSES already
+// settles the drain, so this ceiling is the dead-but-still-connected case alone.
+export function drainBudgetMs(pcm, { floorMs = 3000, ceilingMs = 180000 } = {}) {
+  const audioMs = durationMs(pcm);
+  return Math.min(audioMs + Math.max(floorMs, audioMs * 0.25), ceilingMs);
+}
+
 // The recorder is the only part of this file worth a unit test, so it takes its mic as a
 // parameter and knows nothing about websockets. An utterance is: wait for someone to start
 // talking, keep everything from then on, and stop once they have been quiet long enough.
@@ -455,13 +472,14 @@ export function createAudio({ cfg = config } = {}) {
       if (!pcm?.length || !bridge) return { interrupted: false };
       bridge.clear();
       bridge.sendPcm(pcm);
+      const budget = drainBudgetMs(pcm);
 
       // Off by default: with the microphone open during playback the voice cut itself off
       // partway through a sentence, which loses the question rather than answering it. Leaving
       // the mic shut here also means nothing is captured until it is actually our turn to
       // listen.
       if (!cfg.bargeIn) {
-        await bridge.drain(Math.min(durationMs(pcm) + 2000, 20000));
+        await bridge.drain(budget);
         return { interrupted: false };
       }
 
@@ -477,7 +495,7 @@ export function createAudio({ cfg = config } = {}) {
         }
       });
 
-      await bridge.drain(Math.min(durationMs(pcm) + 2000, 20000));
+      await bridge.drain(budget);
       mic.stop();
       return { interrupted };
     },

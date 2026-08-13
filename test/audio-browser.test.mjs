@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createRecorder, msSinceTabSeen } from "../src/audio/browser.mjs";
+import { createRecorder, drainBudgetMs, msSinceTabSeen } from "../src/audio/browser.mjs";
 import { beepPcm } from "../src/pcm.mjs";
 
 // A fake mic: hand it chunks and it delivers them on the next tick, like the bridge does.
@@ -111,4 +111,23 @@ test("a tab nobody has ever seen is not remembered", () => {
   // The memory is what stops a fresh bridge — one per call in VOICE_DEV — from deciding there
   // is no tab just because none is attached in the millisecond it looked.
   assert.equal(msSinceTabSeen("/definitely/not/a/file"), Infinity);
+});
+
+// PCM16 mono at 24 kHz: 48 bytes per millisecond of audio.
+const seconds = (n) => Buffer.alloc(n * 48000);
+
+test("the wait for the page to finish speaking scales with the sentence", () => {
+  // The bug, pinned. `durationMs + 2000` capped at 20 s meant anything past ~18 s of audio was
+  // waited on for less time than it takes to play. The call then opened the microphone over
+  // its own tail and the next line's clear() cut the sentence off mid-word.
+  assert.ok(drainBudgetMs(seconds(20)) > 20000, "a 20-second answer is not given 20 seconds");
+  assert.ok(drainBudgetMs(seconds(30)) > 30000);
+  assert.ok(drainBudgetMs(seconds(60)) > 60000);
+
+  // Short lines keep a flat floor — most of the wait there is the network, not the audio.
+  assert.equal(drainBudgetMs(seconds(1)), 4000);
+  assert.ok(drainBudgetMs(Buffer.alloc(0)) >= 3000);
+
+  // The ceiling is only there so a tab that is connected but dead cannot hang a call forever.
+  assert.equal(drainBudgetMs(seconds(600), { ceilingMs: 180000 }), 180000);
 });
