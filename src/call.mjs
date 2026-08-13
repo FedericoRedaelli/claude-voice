@@ -5,6 +5,7 @@
 //   S2 listen      one utterance, ended by silence
 //   S3 transcribe  Whisper turns it into words
 //   S4 route       the brain says whether to answer (-> S1) or to decide (-> S5)
+//   S4b confirm    a choice only: a second, blind reading of the same words has to agree
 //   S5 close       policy validates the decision, the page gets a receipt, Claude gets JSON
 //
 // It talks to four interfaces and to nothing else — no network, no audio device, no timers of
@@ -12,14 +13,25 @@
 // testable with four fakes and no ports.
 
 import { config } from "./config.mjs";
-import {
-  choiceDisagreement,
-  choiceUncorroborated,
-  looksGarbled,
-  normalizeDecision,
-} from "./policy.mjs";
+import { looksGarbled, normalizeDecision } from "./policy.mjs";
 
 const log = (m) => process.stderr.write(`[claude-voice] call: ${m}\n`);
+
+// The second reading, or null when there isn't one. A brain that cannot confirm and a provider
+// that fails are the same answer here: no confirmation. Never throws — a failed second opinion
+// must cost the user a message to Claude, not the whole call.
+async function confirmedIndex({ brain, options, heard, log }) {
+  if (typeof brain.confirmChoice !== "function") {
+    log("this brain cannot confirm a choice — treating it as unconfirmed");
+    return null;
+  }
+  try {
+    return await brain.confirmChoice({ options, transcript: heard });
+  } catch (e) {
+    log(`the second reading failed (${String(e?.message ?? e)}) — treating it as unconfirmed`);
+    return null;
+  }
+}
 
 export async function runCall({ message, options = [], spoken = "", signal, modules, cfg = config }) {
   const { audio, tts, stt, brain } = modules;
@@ -84,25 +96,31 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
       continue;
     }
 
-    // Two independent sources have to agree before Claude acts on a position: what the user
-    // said and what the brain decided it meant. When they don't, nobody wins the argument —
-    // we read the disagreement back and let the user settle it.
-    const clash = choiceDisagreement(routed.decision, heard);
-    if (clash) {
-      log(`refusing the choice: ${clash}`);
-      turns.push({ role: "assistant", content: cfg.confirmLine });
-      say = cfg.confirmLine;
-      continue;
-    }
+    // Two independent readings have to agree before Claude acts on a position. The second one
+    // is a separate model call that sees only what the user said and the options — never the
+    // router's verdict, which it would simply agree with. Three outcomes:
+    //
+    //   same position   -> the choice stands
+    //   no choice heard -> Claude gets the user's own words instead. Silent: they already said
+    //                      it clearly once, and making them repeat it is its own kind of wrong
+    //   a different one -> nobody wins. Read it back and let the user settle it
+    //
+    // The check runs only on a choice, so the extra call is not on the common path. If it
+    // cannot run at all — no confirmer, a provider down — the choice does not get through:
+    // an unverified position is exactly the failure this exists to prevent.
+    if (routed.decision?.kind === "choice") {
+      const seen = await confirmedIndex({ brain, options, heard, log });
+      if (stopped()) return { kind: "end" };
 
-    // A choice also needs positive evidence. When the user named no position and said nothing
-    // resembling the option, the brain is the only source claiming they picked it — so it is
-    // downgraded to their own words, which Claude can read and act on correctly. Silent on
-    // purpose: asking again would make the user repeat a sentence they already said clearly.
-    const weak = choiceUncorroborated(routed.decision, heard, options);
-    if (weak) {
-      log(`downgrading the choice to a message: ${weak}`);
-      routed.decision = { kind: "message", value: heard };
+      if (seen === null) {
+        log("the second reading heard no choice — sending the words to Claude instead");
+        routed.decision = { kind: "message", value: heard };
+      } else if (seen !== routed.decision.optionIndex) {
+        log(`readings disagree: ${routed.decision.optionIndex} vs ${seen} — asking`);
+        turns.push({ role: "assistant", content: cfg.confirmLine });
+        say = cfg.confirmLine;
+        continue;
+      }
     }
 
     // S5 — policy has the last word on what Claude is told.

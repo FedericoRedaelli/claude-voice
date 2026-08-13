@@ -81,12 +81,19 @@ word** — no model rewrites it, so it costs nothing and never drifts from what 
 agent on the other end. That is what lets you interrupt with "wait, explain point six" and get
 a real answer instead of "I don't know".
 
-**A choice needs evidence, not just the absence of a contradiction.** An option only reaches
-Claude if you named its position or repeated its words. Name a different one than the model
-reported and neither wins — the call reads the disagreement back and asks. Name none at all and
-the model's pick is dropped entirely: Claude gets your sentence instead, and decides itself.
-This project started from "the first one" executed as the third, and grew the second rule the
-day "let's skip that for now, do the rest" was reported as picking the thing being skipped.
+**Two independent readings have to agree before Claude acts on an option.** The router decides
+what your turn meant; a second call then gets only your words and the options — never the
+router's verdict, which it would just agree with — and answers with a position, or with
+nothing. Same position, the choice stands. Different ones, neither wins and the call asks.
+Nothing heard, the pick is dropped and Claude gets your sentence to read itself. A choice that
+cannot be confirmed never gets through: this project started from "the first one" executed as
+the third, and grew the second rule the day "let's skip that for now, do the rest" was reported
+as picking the very thing being skipped.
+
+That second reading is a model and not a list of words on purpose. It was ordinals in six
+languages for a while, which meant it worked for the people whose languages someone had thought
+of and silently abstained for everyone else — and it had nothing to say about the refusal that
+made it necessary. "Nimm die zweite" is not in any source file here.
 
 **Asking for detail is not a decision.** The routing model's first job is explaining Claude's
 full text out loud — you are listening, not reading it. It only hands the turn back to Claude

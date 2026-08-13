@@ -35,7 +35,7 @@ Tutto quanto segue è già su `main` e **non va riscritto**.
 |---|---|---|
 | Contratto MCP | `src/server.mjs` | `talk_to_user(message, options, spoken)` |
 | Dispatch | `src/session.mjs` | voce o testo |
-| Guardiano decisioni | `src/policy.mjs` | `normalizeDecision`, ordinali parlati, gate del turno |
+| Guardiano decisioni | `src/policy.mjs` | `normalizeDecision`, `looksGarbled`. La conferma di quale opzione sia stata scelta e' una seconda lettura del modello (`brain.confirmChoice`), non piu' una lista di ordinali |
 | Fallback terminale | `src/text.mjs` | stessa decisione via `/dev/tty` |
 | Config da env | `src/config.mjs`, `src/env.mjs` | `.env` alla radice del plugin |
 | Nudge allo Stop | `hooks/` | costringe Claude a chiamare il tool |

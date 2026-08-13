@@ -66,6 +66,37 @@ Rules that matter more than being helpful:
 - What you put in "say" will be read out loud. No code, no file paths, no lists.`;
 }
 
+// The second source, and the reason it is a model rather than a list of words.
+//
+// A choice is the one decision Claude acts on directly, so it needs two independent readings
+// that agree. The first version of that second reading was a regular expression over ordinals
+// in six languages — which is precisely what this file's opening comment says not to do. It
+// also failed the case it existed for: asked to pick between four approaches, the user
+// declined all of them, named no position, and the list had nothing to say.
+//
+// This asks a fresh model the narrow question, with no knowledge of what the router decided —
+// naming the router's pick would only invite agreement. It gets the words and the options and
+// answers with a position or with nothing.
+function confirmPrompt({ options, lang }) {
+  const list = options.map((o, i) => `${i + 1}. ${o}`).join("\n");
+  return `A developer was asked to choose between numbered options. Below is exactly what they
+said, transcribed from speech in ${lang}.
+
+OPTIONS:
+${list}
+
+Did they choose one of them? They can do it any way people actually do: by number, by
+position, by naming it, by describing it, by agreeing with it. Reply with ONE JSON object:
+
+- They chose one -> {"optionIndex": <1-based number>}
+- They did not — they asked something, refused, hesitated, gave a different instruction,
+  weighed several out loud, or said something unrelated -> {"optionIndex": null}
+
+Choosing is a positive act. If you are inferring it rather than hearing it, the answer is
+null. Null is cheap: the developer's own words go to Claude, who reads them properly. A wrong
+number is expensive: Claude acts on an option they never picked.`;
+}
+
 // Small models wrap JSON in fences, add a sentence before it, or answer in prose. None of
 // that is a failure worth losing a turn over: pull the object out if it is in there, and if
 // it truly is not, hand the raw words to Claude as an instruction. Claude is one turn away.
@@ -109,10 +140,27 @@ export function parseRouted(raw, options = []) {
   return { kind: "decide", decision: { kind: "message", value: value || text } };
 }
 
+// The index a fresh reading found, or null. Anything unexpected — prose, a number nobody
+// offered, a missing field — reads as "no choice heard", which costs the user nothing but a
+// message going to Claude instead of an option.
+export function parseConfirmed(raw, options = []) {
+  const text = String(raw ?? "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  let obj;
+  try {
+    obj = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const i = Number(obj.optionIndex);
+  return Number.isInteger(i) && i >= 1 && i <= options.length ? i : null;
+}
+
 export function createBrain({ fetchImpl = globalThis.fetch, cfg = config } = {}) {
-  return {
-    async route({ message, options = [], turns = [] }) {
-      const res = await fetchImpl(`${cfg.baseUrl}/chat/completions`, {
+  const complete = async (messages, { maxTokens = 800 } = {}) => {
+    const res = await fetchImpl(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${cfg.openrouterKey}`,
@@ -125,7 +173,7 @@ export function createBrain({ fetchImpl = globalThis.fetch, cfg = config } = {})
           // answer. At 300 it spent the lot thinking and returned an empty message about one
           // turn in three. Low effort plus room to finish is what a router needs — it is
           // deciding which of four shapes a sentence has, not solving anything.
-          max_tokens: 800,
+          max_tokens: maxTokens,
           reasoning: { effort: "low" },
           // Not belt and braces — the one thing that makes this model usable. GPT-OSS splits
           // its output into a reasoning channel and a final one, and on the fast providers the
@@ -140,19 +188,40 @@ export function createBrain({ fetchImpl = globalThis.fetch, cfg = config } = {})
             : cfg.brainSort
               ? { provider: { sort: cfg.brainSort } }
               : {}),
-          messages: [
-            { role: "system", content: systemPrompt({ message, options, lang: cfg.lang }) },
-            ...turns,
-          ],
+          messages,
         }),
       });
 
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(`brain ${res.status}: ${detail.slice(0, 300)}`);
-      }
-      const json = await res.json();
-      return parseRouted(json?.choices?.[0]?.message?.content ?? "", options);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`brain ${res.status}: ${detail.slice(0, 300)}`);
+    }
+    const json = await res.json();
+    return json?.choices?.[0]?.message?.content ?? "";
+  };
+
+  return {
+    async route({ message, options = [], turns = [] }) {
+      const raw = await complete([
+        { role: "system", content: systemPrompt({ message, options, lang: cfg.lang }) },
+        ...turns,
+      ]);
+      return parseRouted(raw, options);
+    },
+
+    // Deliberately given only the words and the options — not Claude's message, not the
+    // router's verdict, not the earlier turns. A second opinion that can see the first one is
+    // not a second opinion. Short budget: this is one question with a one-token answer.
+    async confirmChoice({ options = [], transcript = "" }) {
+      if (!options.length || !transcript.trim()) return null;
+      const raw = await complete(
+        [
+          { role: "system", content: confirmPrompt({ options, lang: cfg.lang }) },
+          { role: "user", content: transcript },
+        ],
+        { maxTokens: 300 },
+      );
+      return parseConfirmed(raw, options);
     },
   };
 }

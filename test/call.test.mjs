@@ -14,7 +14,11 @@ const cfg = {
 
 // Fakes with a memory: every test asserts on what the modules were asked to do, which is the
 // only way to tell "it worked" apart from "it returned something".
-function fakes({ armed = true, clicked = true, heard = [], routed = [] } = {}) {
+// `confirmed` is the SECOND reading, the one that never sees the router's verdict. Left unset
+// it agrees with whatever the router claimed, so a test about something else is not silently
+// about the cross-check; the tests that are about it say what the second reader heard.
+function fakes({ armed = true, clicked = true, heard = [], routed = [], confirmed = [] } = {}) {
+  let claimed = null;
   const log = { spoken: [], played: 0, reports: [] };
   return {
     log,
@@ -39,7 +43,17 @@ function fakes({ armed = true, clicked = true, heard = [], routed = [] } = {}) {
       },
     },
     stt: { transcribe: async () => heard.shift() ?? "" },
-    brain: { route: async () => routed.shift() ?? { kind: "decide", decision: { kind: "end" } } },
+    brain: {
+      route: async () => {
+        const r = routed.shift() ?? { kind: "decide", decision: { kind: "end" } };
+        claimed = r?.decision?.optionIndex ?? null;
+        return r;
+      },
+      confirmChoice: async ({ transcript, options }) => {
+        log.confirmed = { transcript, options };
+        return confirmed.length ? confirmed.shift() : claimed;
+      },
+    },
   };
 }
 
@@ -119,7 +133,7 @@ test("a transcript in the wrong alphabet is treated as silence, not as an answer
   // A real call: an Italian turn came back as Korean and a decision was built on it. It must
   // never reach the brain — that is what makes it look like a considered answer.
   let routeCalls = 0;
-  const f = fakes({ heard: ["정답.", "la prima"] });
+  const f = fakes({ heard: ["정답.", "la prima"], confirmed: [1] });
   f.brain.route = async () => {
     routeCalls++;
     return { kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } };
@@ -132,10 +146,12 @@ test("a transcript in the wrong alphabet is treated as silence, not as an answer
   assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" });
 });
 
-test("the user's own words outrank the brain when they disagree about which option", async () => {
-  // "ho detto la prima e ha fatto la terza": the failure the whole project started from.
+test("the two readings disagree about which option: neither wins", async () => {
+  // "ho detto la prima e ha fatto la terza": the failure the whole project started from. The
+  // router says option 2; the second reading, which never saw that, hears option 1.
   const f = fakes({
     heard: ["la prima", "la prima, dicevo"],
+    confirmed: [1, 1],
     routed: [
       { kind: "decide", decision: { kind: "choice", value: OPTIONS[1], optionIndex: 2 } },
       { kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } },
@@ -229,16 +245,22 @@ test("an invented choice becomes the user's own words", async () => {
   const said = "per il momento evitiamo l'injection del prompt, facciamo il resto";
   const f = fakes({
     heard: [said],
+    confirmed: [null], // the second reading hears a refusal, not a pick
     routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
   });
 
   const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
   assert.deepEqual(out, { kind: "message", value: said });
+  assert.deepEqual(
+    f.log.confirmed,
+    { transcript: said, options: OPTIONS },
+    "the second reader gets the words and the options, and nothing else",
+  );
   assert.equal(f.log.spoken.length, 1, "it does not make the user repeat a clear sentence");
 });
 
-// The mirror of it: a choice the user really did name still goes through untouched.
-test("a choice the user named survives the corroboration rule", async () => {
+// The mirror of it: a choice both readings hear goes through untouched.
+test("a choice both readings agree on survives", async () => {
   const f = fakes({
     heard: ["facciamo la seconda"],
     routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[1], optionIndex: 2 } }],
@@ -267,4 +289,49 @@ test("a clarification is answered out loud, not escalated", async () => {
     "s",
     "La seconda rifà i test da capo, senza toccare la prima.",
   ]);
+});
+
+// A second opinion that cannot be obtained is not a licence to act. Both of these used to be
+// impossible to get wrong only because the check was local; now it is a network call.
+test("a choice with no second reading available never reaches Claude", async () => {
+  const f = fakes({
+    heard: ["la prima"],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
+  });
+  delete f.brain.confirmChoice;
+
+  assert.deepEqual(await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg }), {
+    kind: "message",
+    value: "la prima",
+  });
+});
+
+test("a second reading that throws costs a message, not the call", async () => {
+  const f = fakes({
+    heard: ["la prima"],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
+  });
+  f.brain.confirmChoice = async () => {
+    throw new Error("provider down");
+  };
+
+  assert.deepEqual(await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg }), {
+    kind: "message",
+    value: "la prima",
+  });
+});
+
+// Nothing in the second reading is spelled in any particular language: it is asked in whatever
+// the user speaks, and answers with a number. This is the case the word lists could not do.
+test("an option picked in German, named in no source file", async () => {
+  const f = fakes({
+    heard: ["nimm die zweite Möglichkeit"],
+    confirmed: [2],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[1], optionIndex: 2 } }],
+  });
+
+  assert.deepEqual(await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg }), {
+    kind: "choice",
+    value: "Fai altri test",
+  });
 });

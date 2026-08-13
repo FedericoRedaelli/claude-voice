@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createBrain, parseRouted } from "../src/brain/openrouter.mjs";
+import { createBrain, parseConfirmed, parseRouted } from "../src/brain/openrouter.mjs";
 
 const OPTIONS = ["Apri la pull request", "Fai altri test", "Fermati qui"];
 
@@ -167,4 +167,44 @@ test("an error response throws with the status", async () => {
     () => createBrain({ fetchImpl, cfg }).route({ message: "m", options: [], turns: [] }),
     /429/,
   );
+});
+
+// The second reading. Everything it is NOT given matters as much as what it is: no message
+// from Claude, no earlier turns, and above all no hint of what the router decided — a second
+// opinion that can see the first one is not a second opinion.
+test("confirmChoice is asked in isolation, and only about the words", async () => {
+  const { calls, fetchImpl } = fakeFetch(reply('{"optionIndex": 2}'));
+  const out = await createBrain({ fetchImpl, cfg }).confirmChoice({
+    options: OPTIONS,
+    transcript: "nimm die zweite Möglichkeit",
+  });
+
+  assert.equal(out, 2);
+  const [{ body }] = calls;
+  assert.equal(body.messages.length, 2, "one instruction and the user's words, nothing else");
+  assert.equal(body.messages[1].content, "nimm die zweite Möglichkeit");
+  assert.match(body.messages[0].content, /2\. Fai altri test/, "the options are numbered for it");
+  assert.doesNotMatch(body.messages[0].content, /optionIndex":\s*2/, "no verdict to agree with");
+  // Ways of choosing are described, never listed as words — that is the whole point of the
+  // change: a list of words is a list of the languages somebody happened to think of.
+  assert.match(body.messages[0].content, /by number, by\nposition, by naming it/);
+});
+
+test("confirmChoice spends nothing when there is nothing to confirm", async () => {
+  const { calls, fetchImpl } = fakeFetch(reply('{"optionIndex": 1}'));
+  const brain = createBrain({ fetchImpl, cfg });
+
+  assert.equal(await brain.confirmChoice({ options: [], transcript: "la prima" }), null);
+  assert.equal(await brain.confirmChoice({ options: OPTIONS, transcript: "   " }), null);
+  assert.equal(calls.length, 0, "no options or no words is not a question worth asking");
+});
+
+test("parseConfirmed: anything that is not an offered position reads as no choice", () => {
+  assert.equal(parseConfirmed('{"optionIndex": 3}', OPTIONS), 3);
+  assert.equal(parseConfirmed('Certo! {"optionIndex": 1} ecco.', OPTIONS), 1);
+  assert.equal(parseConfirmed('{"optionIndex": null}', OPTIONS), null);
+  assert.equal(parseConfirmed('{"optionIndex": 9}', OPTIONS), null, "an index nobody offered");
+  assert.equal(parseConfirmed('{"optionIndex": "due"}', OPTIONS), null);
+  assert.equal(parseConfirmed("la seconda", OPTIONS), null, "prose is not a confirmation");
+  assert.equal(parseConfirmed("", OPTIONS), null);
 });
