@@ -69,13 +69,15 @@ child.on("close", (code) => {
   console.log();
   console.log(`decision  ${decision || "(none)"}`);
   console.log(`heard     ${heard ?? "(nothing)"}`);
+  console.log(`turns     ${turns}`);
   console.log(`took      ${((Date.now() - t0) / 1000).toFixed(1)}s, exit ${code}`);
   process.exit(decision.includes('"kind"') ? 0 : 1);
 });
 child.stdin.end(JSON.stringify({ message: SPOKEN, options: OPTIONS, spoken: SPOKEN }));
 
 let heard = null;
-let spoke = false;
+let speaking = false;
+let turns = 0;
 
 const attach = () => {
   const tab = new WebSocket(`ws://127.0.0.1:${PORT}/ws?t=${loadOrCreateToken()}`);
@@ -111,9 +113,14 @@ const attach = () => {
     else if (m.t === "drain") {
       owed = m.id;
       setTimeout(settle, 50);
-    } else if (m.t === "mic" && m.on && !spoke) {
-      spoke = true;
-      log("microphone open — speaking");
+    } else if (m.t === "mic" && m.on && !speaking) {
+      // Every turn, not just the first. A brain that answers instead of deciding opens the
+      // microphone again, and a bench that has already said its piece then says nothing — so
+      // the recorder waits out its onset timer, the transcript is empty, the call asks again,
+      // and it burns all eight turns before closing. That is the bench hanging, not the call.
+      speaking = true;
+      turns++;
+      log(`microphone open — speaking (turn ${turns})`);
       // 20 ms frames, then enough silence for the recorder to call the utterance over. Pace is
       // irrelevant: the recorder measures audio time, not wall clock.
       const FRAME = 960;
@@ -121,7 +128,11 @@ const attach = () => {
       const pump = setInterval(() => {
         if (i < answerPcm.length) tab.send(answerPcm.subarray(i, i + FRAME), { binary: true });
         else if (i < answerPcm.length + FRAME * 100) tab.send(Buffer.alloc(FRAME), { binary: true });
-        else return clearInterval(pump);
+        else {
+          clearInterval(pump);
+          speaking = false; // ready to answer again if the call comes back for another turn
+          return;
+        }
         i += FRAME;
       }, 4);
     } else if (m.t === "report") {
