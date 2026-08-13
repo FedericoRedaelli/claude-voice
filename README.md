@@ -81,10 +81,16 @@ word** — no model rewrites it, so it costs nothing and never drifts from what 
 agent on the other end. That is what lets you interrupt with "wait, explain point six" and get
 a real answer instead of "I don't know".
 
-**Two sources have to agree before Claude acts.** A spoken option only counts when what you
-said and what the routing model decided you meant name the same thing. When they disagree,
-neither wins: the call reads the disagreement back and asks. This project started from an
-answer of "the first one" that was executed as the third.
+**A choice needs evidence, not just the absence of a contradiction.** An option only reaches
+Claude if you named its position or repeated its words. Name a different one than the model
+reported and neither wins — the call reads the disagreement back and asks. Name none at all and
+the model's pick is dropped entirely: Claude gets your sentence instead, and decides itself.
+This project started from "the first one" executed as the third, and grew the second rule the
+day "let's skip that for now, do the rest" was reported as picking the thing being skipped.
+
+**Asking for detail is not a decision.** The routing model's first job is explaining Claude's
+full text out loud — you are listening, not reading it. It only hands the turn back to Claude
+when you decide something, ask for work, or ask something the text genuinely does not answer.
 
 **Nothing is billed for a call you don't take.** The button is the only trigger. Before you
 press it there is no microphone, no transcription and no completion — only a soft pulse every
@@ -154,7 +160,7 @@ overrides them. The ones worth knowing:
 | `VOICE_TTS_MODEL` / `VOICE_TTS_VOICE` | MAI-Voice-2-Flash / Harper | see the note below |
 | `VOICE_BRAIN_SORT` | `throughput` | how OpenRouter picks a provider for the brain |
 | `VOICE_BRAIN_PROVIDER` | — | pin named providers instead of sorting |
-| `VOICE_MAX_TURNS` | `8` | exchanges before the call closes itself |
+| `VOICE_MAX_TURNS` | `12` | exchanges before the call closes itself |
 | `VOICE_WAIT_MS` | `180000` | how long the button stays armed |
 | `VOICE_WAIT_TICK_MS` | `5000` | how often it pulses while waiting; `0` for one cue |
 | `VOICE_RECORD_SILENCE_MS` | `1300` | trailing silence that ends your turn |

@@ -91,7 +91,11 @@ export const config = {
 
   // A runaway conversation is a runaway bill. After this many exchanges the call closes and
   // Claude gets {kind:"end"} — it can always ask again.
-  maxTurns: Number(process.env.VOICE_MAX_TURNS) || 8,
+  //
+  // 8 was sized for a call that answers one question and decides. Asking for detail is now the
+  // expected path, and a real "explain that better / and the third one? / why" costs three
+  // exchanges before anybody has decided anything.
+  maxTurns: Number(process.env.VOICE_MAX_TURNS) || 12,
 
   // Utterance capture, all in audio time. Trailing silence that ends a turn, the floor below
   // which a "turn" is a cough, and the ceiling that stops a stuck mic from uploading a minute

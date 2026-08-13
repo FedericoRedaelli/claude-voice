@@ -12,7 +12,12 @@
 // testable with four fakes and no ports.
 
 import { config } from "./config.mjs";
-import { choiceDisagreement, looksGarbled, normalizeDecision } from "./policy.mjs";
+import {
+  choiceDisagreement,
+  choiceUncorroborated,
+  looksGarbled,
+  normalizeDecision,
+} from "./policy.mjs";
 
 const log = (m) => process.stderr.write(`[claude-voice] call: ${m}\n`);
 
@@ -88,6 +93,16 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
       turns.push({ role: "assistant", content: cfg.confirmLine });
       say = cfg.confirmLine;
       continue;
+    }
+
+    // A choice also needs positive evidence. When the user named no position and said nothing
+    // resembling the option, the brain is the only source claiming they picked it — so it is
+    // downgraded to their own words, which Claude can read and act on correctly. Silent on
+    // purpose: asking again would make the user repeat a sentence they already said clearly.
+    const weak = choiceUncorroborated(routed.decision, heard, options);
+    if (weak) {
+      log(`downgrading the choice to a message: ${weak}`);
+      routed.decision = { kind: "message", value: heard };
     }
 
     // S5 — policy has the last word on what Claude is told.

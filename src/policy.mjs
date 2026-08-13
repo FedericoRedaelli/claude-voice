@@ -78,6 +78,56 @@ export function spokenOptionIndex(text) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+// Words that carry meaning, for comparing what was said against what an option says. Short
+// tokens are dropped because "di", "la", "e" match everything and would corroborate anything.
+const STOP = new Set([
+  "della", "delle", "dello", "degli", "quella", "quello", "questa", "questo", "come", "sono",
+  "with", "that", "this", "from", "into", "then", "than", "have", "will", "your", "solo",
+  "anche", "senza", "sulla", "sullo", "essere", "fare", "cosa", "molto", "dove", "when",
+]);
+
+const contentWords = (s) =>
+  [...String(s || "").toLowerCase().matchAll(/\p{L}{4,}/gu)].map((m) => m[0]).filter((w) => !STOP.has(w));
+
+// How much of an option's own wording the user actually echoed, 0 to 1. Not fuzzy matching:
+// just "did they say any of the words this option is made of".
+export function optionEcho(transcript, option) {
+  const want = new Set(contentWords(option));
+  if (!want.size) return 0;
+  const said = new Set(contentWords(transcript));
+  let hit = 0;
+  for (const w of want) if (said.has(w)) hit++;
+  return hit / want.size;
+}
+
+// A choice needs POSITIVE evidence, not merely the absence of a contradiction.
+//
+// choiceDisagreement below only fires when the user named a position and the brain named a
+// different one. When the user named NO position it returned null — via libera — and a brain
+// that had invented an option got its way. That is not a hypothetical: asked to pick between
+// four approaches, the user answered "per il momento direi che evitiamo questa cosa
+// dell'injection del prompt, facciamo il resto" — a refusal, naming nothing — and the call
+// reported choice 1, the very thing being refused. The user's words were sitting right there
+// in the transcript, unused.
+//
+// So a choice survives only if the transcript names its position, or repeats enough of the
+// option's own words to be recognisably about it. Everything else is downgraded to `message`,
+// which hands Claude the sentence verbatim and lets it decide — the outcome that would have
+// been right in every case we have seen this fail.
+//
+// Returns null when the choice is corroborated, or a reason to downgrade it.
+export function choiceUncorroborated(decision, transcript, options = [], minEcho = 0.34) {
+  if (decision?.kind !== "choice") return null;
+  const named = spokenOptionIndexes(transcript);
+  if (named.length === 1 && named[0] === decision.optionIndex) return null;
+  if (named.length) return null; // a real clash — choiceDisagreement owns that case
+
+  const option = Number.isInteger(decision.optionIndex) ? options[decision.optionIndex - 1] : decision.value;
+  const echo = optionEcho(transcript, option);
+  if (echo >= minEcho) return null;
+  return `nothing in what you said names or repeats that option (echo ${echo.toFixed(2)})`;
+}
+
 // The last gate in front of a choice: two independent sources have to agree.
 //
 // The transcript is what the user actually said; `optionIndex` is what the brain decided that

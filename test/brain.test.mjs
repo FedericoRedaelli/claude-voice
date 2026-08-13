@@ -104,8 +104,16 @@ test("route sends Claude's full message as context and the turns as history", as
   // It answered a question about background-noise settings by inventing values to change.
   // Nothing about them was in Claude's message; the prompt has to say what to do instead of
   // composing an answer, not merely that composing one is forbidden.
-  assert.match(system.content, /know NOTHING except the text above/i);
-  assert.match(system.content, /not written above.*must NOT compose/is);
+  assert.match(system.content, /you know nothing BEYOND that text/i);
+  assert.match(system.content, /genuinely not in it, do not compose one/is);
+
+  // The other half of the same balance: what IS in the text must be explained out loud, not
+  // handed back to Claude. Escalating a question the text answers made the user hear the same
+  // summary twice and be told it was written in the terminal — which they are not reading.
+  assert.match(system.content, /LISTENING, not reading/i);
+  assert.match(system.content, /must be answered with "speak"/i);
+  // And a refusal is never a pick, whatever the options say.
+  assert.match(system.content, /Never turn a refusal into a choice/i);
 });
 
 test("the request asks for a fast provider and leaves the model room to finish", async () => {

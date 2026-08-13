@@ -222,3 +222,49 @@ test("an audio backend with no hint still just ends", async () => {
   const decision = await runCall({ message: "m", modules: fakes({ armed: false }), cfg });
   assert.deepEqual(decision, { kind: "end" });
 });
+
+// The whole point of the project, in one case. The user declined every option; the brain
+// reported a pick anyway. Claude must receive the sentence, not the option.
+test("an invented choice becomes the user's own words", async () => {
+  const said = "per il momento evitiamo l'injection del prompt, facciamo il resto";
+  const f = fakes({
+    heard: [said],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
+  });
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(out, { kind: "message", value: said });
+  assert.equal(f.log.spoken.length, 1, "it does not make the user repeat a clear sentence");
+});
+
+// The mirror of it: a choice the user really did name still goes through untouched.
+test("a choice the user named survives the corroboration rule", async () => {
+  const f = fakes({
+    heard: ["facciamo la seconda"],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[1], optionIndex: 2 } }],
+  });
+
+  assert.deepEqual(await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg }), {
+    kind: "choice",
+    value: OPTIONS[1],
+  });
+});
+
+// Asking for detail keeps the call alive: the brain answers from Claude's full text and the
+// loop comes back for another turn instead of handing the question to Claude.
+test("a clarification is answered out loud, not escalated", async () => {
+  const f = fakes({
+    heard: ["spiegami meglio la seconda", "va bene, la seconda"],
+    routed: [
+      { kind: "speak", text: "La seconda rifà i test da capo, senza toccare la prima." },
+      { kind: "decide", decision: { kind: "choice", value: OPTIONS[1], optionIndex: 2 } },
+    ],
+  });
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(out, { kind: "choice", value: OPTIONS[1] });
+  assert.deepEqual(f.log.spoken, [
+    "s",
+    "La seconda rifà i test da capo, senza toccare la prima.",
+  ]);
+});
