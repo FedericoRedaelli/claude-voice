@@ -85,7 +85,7 @@ e importa dinamicamente l'implementazione richiesta. Le regole che tengono in pi
 |---|---|---|---|
 | TTS | `microsoft/mai-voice-2-flash` | `POST /api/v1/audio/speech` | body `{model, input, voice, response_format:"pcm", speed}`; risposta = byte audio grezzi, non JSON |
 | STT | `openai/whisper-large-v3-turbo` | `POST /api/v1/audio/transcriptions` | body `{model, input_audio:{data:<base64>, format:"wav"}, language}`; risposta `{text, usage}` |
-| Cervello | `openai/gpt-oss-20b` | `POST /api/v1/chat/completions` | output JSON vincolato allo schema della decisione |
+| Cervello | `openai/gpt-oss-120b` | `POST /api/v1/chat/completions` | output JSON vincolato allo schema della decisione |
 
 Voce scelta: **`en-US-Harper:MAI-Voice-2`**. MAI-Voice-2-Flash espone quattro voci soltanto
 (`en-US-Harper`, `es-MX-Valeria`, `fr-FR-Soleil`, `de-DE-Klaus`): nessuna locale italiana
@@ -172,7 +172,7 @@ VOICE_BRAIN=openrouter
 VOICE_TTS_MODEL=microsoft/mai-voice-2-flash
 VOICE_TTS_VOICE=en-US-Harper:MAI-Voice-2
 VOICE_STT_MODEL=openai/whisper-large-v3-turbo
-VOICE_BRAIN_MODEL=openai/gpt-oss-20b
+VOICE_BRAIN_MODEL=openai/gpt-oss-120b
 ```
 
 Chiavi da rimuovere da `.env` e da `config.mjs`: `ELEVENLABS_*`, `OPENAI_API_KEY`,

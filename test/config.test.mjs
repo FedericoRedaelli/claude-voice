@@ -20,7 +20,7 @@ test("the three models default to the ones the spec fixed", async () => {
   assert.equal(config.ttsModel, "microsoft/mai-voice-2-flash");
   assert.equal(config.ttsVoice, "en-US-Harper:MAI-Voice-2");
   assert.equal(config.sttModel, "openai/whisper-large-v3-turbo");
-  assert.equal(config.brainModel, "openai/gpt-oss-20b");
+  assert.equal(config.brainModel, "openai/gpt-oss-120b");
 });
 
 test("every module slot defaults to a named implementation", async () => {

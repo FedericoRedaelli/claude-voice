@@ -112,7 +112,7 @@ import, all exchanging PCM16 mono at 24 kHz so nothing is ever resampled:
 | `AudioIO` | button, microphone, speaker, echo cancellation | a browser tab on localhost |
 | `Tts` | reads Claude's line, verbatim | `microsoft/mai-voice-2-flash` |
 | `Stt` | turns your answer into words | `openai/whisper-large-v3-turbo` |
-| `Brain` | decides what your answer meant | `openai/gpt-oss-20b` |
+| `Brain` | decides what your answer meant | `openai/gpt-oss-120b` |
 
 ```
 Tts    speak(text) -> Buffer                          PCM16 mono 24 kHz

@@ -53,11 +53,21 @@ export const config = {
   // interface.
   ttsVoice: process.env.VOICE_TTS_VOICE || "en-US-Harper:MAI-Voice-2",
   sttModel: process.env.VOICE_STT_MODEL || "openai/whisper-large-v3-turbo",
-  brainModel: process.env.VOICE_BRAIN_MODEL || "openai/gpt-oss-20b",
+  // The 120b, not the 20b, and the reason is one sentence long: on "fai la prima ma prima
+  // mostrami il diff" — an option named, with a condition the options do not cover — the 20b
+  // answers `choice` three times out of three, and once the second reading agreed with it,
+  // which is the path that reaches Claude as a decision the user never made. The 120b answers
+  // `message` three out of three. On the plain cases they tie. See scripts/brain-bakeoff.mjs.
+  //
+  // It is not a trade: routing latency measured the same (287 ms median for both), input costs
+  // the same, and the output is a thirty-token JSON object, so the higher output rate works out
+  // to a few millionths of a dollar per call.
+  brainModel: process.env.VOICE_BRAIN_MODEL || "openai/gpt-oss-120b",
 
   // How OpenRouter picks which provider serves the brain. Left to itself it spreads the same
-  // model across providers that differ by more than an order of magnitude — measured on this
-  // model: 0.3-0.5 s on the fastest, 3-6 s typical, and one turn that took 20.6 s. In a
+  // model across providers that differ by more than an order of magnitude — measured on
+  // gpt-oss-20b, which was the default then: 0.3-0.5 s on the fastest, 3-6 s typical, and one
+  // turn that took 20.6 s. In a
   // conversation that gap is the difference between an answer and an awkward silence, so we
   // ask for throughput by name. Set VOICE_BRAIN_SORT="" to hand the choice back.
   brainSort: process.env.VOICE_BRAIN_SORT === undefined ? "throughput" : process.env.VOICE_BRAIN_SORT,
