@@ -1,6 +1,7 @@
 // The call: five states, and the only file that knows the order they come in.
 //
 //   S0 armed       the page shows the question and waits for the button. Nothing is paid for
+//   Sx click       any option, clicked on the page, closes the call from wherever it is
 //   S1 opening     the TTS reads Claude's line VERBATIM. No model is involved
 //   S2 listen      one utterance, ended by silence
 //   S3 transcribe  Whisper turns it into words
@@ -45,14 +46,61 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     const note = audio.hint?.();
     return note ? { kind: "end", note } : { kind: "end" };
   }
-  if (!(await audio.waitForButton(cfg.waitMs))) {
-    log("nobody answered — closing without opening the call");
-    return { kind: "end" };
-  }
 
   // Claude wrote `spoken` for the ear. If it did not, its full message is all we have.
   let say = spoken.trim() || message;
   const turns = [];
+
+  // Sx — the click. An option pressed on the page is the same answer the voice path spends a
+  // synthesis, a recording, a transcription and two model calls to reach, so it short-circuits
+  // all of it. It can land at any moment, which is why it is a promise raced against the two
+  // points where the call is waiting for the user: the button, and the utterance. A click that
+  // arrives while the voice is still talking is not lost — the promise stays resolved and wins
+  // the next race. An audio backend with no clicks (the tests, the text path) waits forever
+  // here, which is exactly the old behaviour.
+  const NEVER = new Promise(() => {});
+  const CLICKED = Symbol("clicked");
+  let clicked = null;
+  let click =
+    typeof audio.waitForPick === "function"
+      ? audio.waitForPick().then((i) => {
+          clicked = i;
+          return CLICKED;
+        })
+      : NEVER;
+  const orClick = (p) => Promise.race([p, click]);
+
+  // An index nobody offered is a broken page, not a decision. Drop it and put the call back
+  // where it was, rather than closing on a position out of thin air.
+  const clickIsReal = () => {
+    if (Number.isInteger(clicked) && clicked >= 0 && clicked < options.length) return true;
+    log(`ignoring a click on option ${clicked}: ${options.length} were offered`);
+    clicked = null;
+    click = NEVER;
+    return false;
+  };
+  const closeOnClick = () => {
+    // The question has been answered, so nothing should still be waiting for the button — and
+    // a wait left pending is not passive: it keeps the page armed and keeps the waiting cue
+    // beeping. The first version of this skipped it, and a click looked like a freeze.
+    audio.abandonWait?.();
+    // Through the policy like every other decision: the click is trusted about the position,
+    // not about what Claude is finally told.
+    const decision = normalizeDecision({ kind: "choice", optionIndex: clicked + 1 }, options, log);
+    audio.report({ decision, spoken: say, message, options });
+    return decision;
+  };
+
+  const button = audio.waitForButton(cfg.waitMs);
+  let pressed = await orClick(button);
+  if (pressed === CLICKED) {
+    if (clickIsReal()) return closeOnClick();
+    pressed = await button; // junk index — go back to waiting for the button
+  }
+  if (!pressed) {
+    log("nobody answered — closing without opening the call");
+    return { kind: "end" };
+  }
 
   for (let turn = 0; turn < cfg.maxTurns; turn++) {
     if (stopped()) return { kind: "end" };
@@ -63,8 +111,14 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     if (interrupted) log("interrupted — listening");
     if (stopped()) return { kind: "end" };
 
-    // S2 + S3 — one utterance, then words.
-    const heard = await stt.transcribe(await audio.record());
+    // S2 + S3 — one utterance, then words. Unless they answered with the mouse instead.
+    const utterance = audio.record();
+    let captured = await orClick(utterance);
+    if (captured === CLICKED) {
+      if (clickIsReal()) return closeOnClick();
+      captured = await utterance;
+    }
+    const heard = await stt.transcribe(captured);
     if (stopped()) return { kind: "end" };
 
     // Silence is not a turn, and neither is a transcript in the wrong alphabet: that is the

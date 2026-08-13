@@ -272,6 +272,86 @@ test("a choice both readings agree on survives", async () => {
   });
 });
 
+// A click on an option is an answer too, and by far the cheapest one: the page already knows
+// which option it is, so nothing has to be synthesised, recorded, transcribed or routed. It
+// also must not require the microphone button — the whole point is answering with the mouse.
+test("a click answers without the button, the transcriber or the brain", async () => {
+  const f = fakes();
+  let transcribed = 0;
+  f.stt.transcribe = async () => {
+    transcribed++;
+    return "";
+  };
+  f.audio.waitForButton = () => new Promise(() => {}); // nobody presses Parla
+  f.audio.waitForPick = async () => 1;
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.deepEqual(out, { kind: "choice", value: "Fai altri test" });
+  assert.equal(f.log.spoken.length, 0, "no synthesis");
+  assert.equal(transcribed, 0, "no transcription");
+});
+
+// The other moment a click can land: the question has been read out and the call is waiting
+// for an utterance that never comes, because the user reached for the mouse instead.
+test("a click while the call is listening ends it there", async () => {
+  const f = fakes();
+  let click;
+  f.audio.waitForPick = () => new Promise((resolve) => (click = resolve));
+  f.audio.record = () => new Promise(() => {}); // the user never speaks
+  f.audio.play = async () => {
+    f.log.played++;
+    click(0); // they click as the question finishes
+    return { interrupted: false };
+  };
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" });
+  assert.equal(f.log.spoken.length, 1, "asked once, answered by hand");
+});
+
+// An index nobody offered is a broken page, not a decision. Dropping it has to leave the call
+// exactly where it was — still listening — rather than closing on a position out of thin air.
+test("a click on an option that was never offered is dropped, not acted on", async () => {
+  const f = fakes({
+    heard: ["la prima"],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
+  });
+  f.audio.waitForPick = async () => 7;
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.deepEqual(out, { kind: "choice", value: "Apri la pull request" }, "carried on by voice");
+});
+
+// The bug the first version shipped with. Returning on a click left the button wait pending,
+// and a pending wait keeps the page armed and the waiting cue beeping — so a question that HAD
+// been answered went on looking, and sounding, exactly like one nobody had touched.
+test("a click stops the wait for the button it made pointless", async () => {
+  const f = fakes();
+  let abandoned = 0;
+  f.audio.abandonWait = () => abandoned++;
+  f.audio.waitForButton = () => new Promise(() => {});
+  f.audio.waitForPick = async () => 0;
+
+  await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.equal(abandoned, 1, "the button wait was called off");
+});
+
+// The receipt is the only place the user can check what went back to Claude, so a decision made
+// with the mouse has to leave one too.
+test("a click leaves a receipt on the page", async () => {
+  const f = fakes();
+  f.audio.waitForButton = () => new Promise(() => {});
+  f.audio.waitForPick = async () => 0;
+
+  await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+
+  assert.deepEqual(f.log.reports.at(-1).decision, { kind: "choice", value: OPTIONS[0] });
+});
+
 // Asking for detail keeps the call alive: the brain answers from Claude's full text and the
 // loop comes back for another turn instead of handing the question to Claude.
 test("a clarification is answered out loud, not escalated", async () => {

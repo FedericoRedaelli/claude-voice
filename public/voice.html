@@ -5,70 +5,146 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>claude-voice</title>
     <style>
-      :root { color-scheme: dark light; }
+      /* Dark only, and said so. This used to declare `dark light`, which promises the browser a
+         light palette that does not exist here — so a light-preferring OS got dark text on the
+         dark background for anything the page did not colour by hand. */
+      :root {
+        color-scheme: dark;
+        --bg: #131418;
+        --surface: #1b1c23;
+        --line: #2b2c35;
+        --text: #e7e7ea;
+        --muted: #8b8c96;
+        --accent: #d97757;
+        --green: #6cc38a;
+        /* How loud you are right now, 0–1. The only value the audio thread pushes into CSS. */
+        --level: 0;
+      }
+      * { box-sizing: border-box; }
       body {
-        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 2rem 1rem;
+        margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 2.5rem 1rem;
         font: 15px/1.55 -apple-system, system-ui, sans-serif;
-        background: #14151a; color: #e7e7ea;
+        background: var(--bg); color: var(--text);
       }
-      main { width: min(34rem, 92vw); text-align: center; }
-      h1 { font-size: 1.05rem; font-weight: 600; letter-spacing: .02em; margin: 0 0 .2rem; }
-      p.sub { margin: 0 0 2rem; opacity: .5; font-size: .85rem; }
-      button {
-        font: inherit; font-weight: 600; padding: .85rem 2rem; border: 0; border-radius: 999px;
-        background: #d97757; color: #14151a; cursor: pointer;
+      main { width: min(32rem, 92vw); text-align: center; }
+      h1 { font-size: .82rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+           color: var(--muted); margin: 0 0 2.2rem; }
+
+      .pill {
+        font: inherit; font-weight: 600; padding: .8rem 1.9rem; border: 0; border-radius: 999px;
+        background: var(--accent); color: #14151a; cursor: pointer;
       }
-      button:hover:not(:disabled) { filter: brightness(1.08); }
-      button:disabled { opacity: .3; cursor: default; }
-      button.ghost { background: transparent; color: #e7e7ea; box-shadow: inset 0 0 0 1px #3a3b45; }
-      #status { margin-top: 1.4rem; font-size: .85rem; opacity: .8; min-height: 1.5em; }
-      #meter { margin: 1.1rem auto 0; width: 100%; height: 6px; border-radius: 3px; background: #26272e; overflow: hidden; }
-      #bar { height: 100%; width: 0; background: #6cc38a; transition: width .06s linear; }
-      .dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: #6cc38a; margin-right: .4rem; }
-      .off { background: #7a7b85; }
-      /* What Claude is asking. This is the whole point of having a page: four options read
-         out loud are four things you have to hold in your head, and one you can misremember
-         at the moment you answer. */
-      #howto {
-        margin-top: 1.6rem; padding: 1rem 1.2rem; border-radius: .7rem; text-align: left;
-        background: #1c1d24; box-shadow: inset 0 0 0 1px #2c2d36; font-size: .88rem;
+      .pill.ghost { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px #3a3b45; }
+      .pill:hover:not(:disabled) { filter: brightness(1.08); }
+      .pill:disabled { opacity: .3; cursor: default; }
+      kbd {
+        font: inherit; font-size: .74rem; font-weight: 500; opacity: .55; margin-left: .5rem;
+        padding: .05rem .35rem; border-radius: .25rem; box-shadow: inset 0 0 0 1px currentColor;
       }
-      #howto b { color: #d97757; font-weight: 600; }
-      #ask { font-weight: 600; }
-      #opts { margin: .6rem 0 0; opacity: .75; }
-      #opts div { padding: .1rem 0; }
-      #howto #start { margin-top: .9rem; }
+
+      /* WHOSE TURN IT IS. This is the most important thing on the screen and it used to be the
+         smallest — a half-character dot next to a line of text at 80% opacity, while the level
+         meter, which matters least, was as wide as the page. One shape, one colour, one word. */
+      /* The gap has to clear the level ring at full scale, or a loud syllable pushes the ring
+         through the label underneath it. */
+      .turn { display: flex; flex-direction: column; align-items: center; gap: 1.35rem; margin-bottom: 2rem; }
+      .orb {
+        position: relative; width: 74px; height: 74px; border-radius: 50%;
+        display: grid; place-items: center; background: var(--surface);
+        box-shadow: inset 0 0 0 1px var(--line);
+        transition: background .25s, box-shadow .25s;
+      }
+      /* The ring is the level meter, moved to where you are already looking. */
+      .orb::before {
+        content: ""; position: absolute; inset: -9px; border-radius: 50%;
+        border: 1px solid transparent; transition: border-color .25s, transform .07s linear;
+      }
+      .bars { display: flex; gap: 4px; align-items: center; height: 28px; }
+      .bars i { display: block; width: 4px; height: 8px; border-radius: 2px; background: var(--muted);
+                transition: background .25s, height .07s linear; }
+      .turn b { font-size: .95rem; font-weight: 600; }
+      .turn small { display: block; font-size: .78rem; color: var(--muted); min-height: 1.4em; }
+
+      .s-off { opacity: .4; }
+      .s-wait .orb { animation: breath 2.6s ease-in-out infinite; }
+      @keyframes breath {
+        0%, 100% { box-shadow: inset 0 0 0 1px var(--line); }
+        50% { box-shadow: inset 0 0 0 1px #4a4b58; }
+      }
+      .s-claude .orb { background: #2a1d17; box-shadow: inset 0 0 0 1px #4a2f22; }
+      .s-claude .bars i { background: var(--accent); animation: eq .9s ease-in-out infinite; }
+      .s-claude .bars i:nth-child(2) { animation-delay: .15s; }
+      .s-claude .bars i:nth-child(3) { animation-delay: .3s; }
+      .s-claude b { color: var(--accent); }
+      @keyframes eq { 0%, 100% { height: 8px; } 50% { height: 26px; } }
+      .s-you .orb { background: #17251c; box-shadow: inset 0 0 0 1px #2f5540; }
+      .s-you .orb::before { border-color: var(--green); transform: scale(calc(1 + var(--level) * .3)); }
+      .s-you .bars i { background: var(--green); height: calc(8px + var(--level) * 16px); }
+      .s-you .bars i:nth-child(2) { height: calc(8px + var(--level) * 24px); }
+      .s-you b { color: var(--green); }
+
+      /* Claude's question. On screen because four options read out loud are four things you have
+         to hold in your head, and one you can misremember at the moment you answer. */
+      #ask { font-size: 1.1rem; line-height: 1.45; margin: 0 auto 1.2rem; max-width: 28rem; }
+
+      /* Options you can click. The same answer the voice path reaches through a synthesis, a
+         recording, a transcription and two model calls — for free, and without the microphone. */
+      #opts { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1.3rem; }
+      .opt {
+        display: flex; gap: .75rem; align-items: baseline; width: 100%; padding: .7rem .9rem;
+        font: inherit; text-align: left; color: var(--text); cursor: pointer;
+        border: 0; border-radius: .6rem; background: var(--surface);
+        box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow .15s, opacity .15s;
+      }
+      .opt .n { color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
+      .opt:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--accent); }
+      .opt:disabled { cursor: default; opacity: .45; }
+      .opt.taken { box-shadow: inset 0 0 0 1px var(--green); opacity: 1; }
+      .opt.taken .n { color: var(--green); }
+
+      #detail { margin-top: 1.3rem; font-size: .8rem; color: var(--muted); min-height: 1.4em; }
+      #detail a { color: var(--text); }
+
+      /* The receipt. Stacked rather than two columns: the values are whole sentences, and in a
+         grid whose first column is `auto` a long one wrapped into a ribbon. */
       #report {
-        margin-top: 1.2rem; padding: 1rem 1.2rem; border-radius: .7rem; text-align: left;
-        background: #1c1d24; box-shadow: inset 0 0 0 1px #2c2d36; font-size: .85rem;
+        margin-top: .8rem; padding: 1rem 1.1rem; border-radius: .7rem; text-align: left;
+        background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: .86rem;
       }
-      #report h2 { margin: 0 0 .7rem; font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; opacity: .45; font-weight: 600; }
-      #report dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .45rem .9rem; }
-      #report dt { opacity: .45; white-space: nowrap; font-size: .78rem; padding-top: .1rem; }
-      #report dd { margin: 0; overflow-wrap: anywhere; }
-      #report .kind { display: inline-block; padding: .1rem .5rem; border-radius: .35rem; font-size: .75rem; font-weight: 600; background: #2c2d36; }
+      #report h2 { margin: 0; font-size: .7rem; letter-spacing: .09em; text-transform: uppercase;
+                   color: var(--muted); font-weight: 600; }
+      #report dl { margin: 0; }
+      #report dt { margin-top: .8rem; font-size: .7rem; letter-spacing: .07em; text-transform: uppercase;
+                   color: var(--muted); }
+      #report dd { margin: .15rem 0 0; overflow-wrap: anywhere; }
+      #report .kind { display: inline-block; padding: .1rem .5rem; border-radius: .35rem;
+                      font-size: .75rem; font-weight: 600; background: #2c2d36; }
       #report .kind.choice { background: #24402f; color: #8fdcab; }
       #report .kind.message { background: #2d3550; color: #a8bdf0; }
       #report .kind.end { background: #3a2b28; color: #e0a793; }
-      .hint { margin-top: 1.6rem; font-size: .76rem; opacity: .35; }
+      .hint { margin-top: 2rem; font-size: .76rem; color: var(--muted); opacity: .7; }
     </style>
   </head>
   <body>
     <main>
       <h1>claude-voice</h1>
-      <p class="sub">scheda audio del loop vocale</p>
 
-      <button id="go">Attiva audio</button>
+      <button class="pill" id="go">Attiva audio</button>
 
       <div id="live" hidden>
-        <div id="meter"><div id="bar"></div></div>
-        <div id="status"></div>
-
-        <div id="howto">
-          <div id="ask">In attesa che Claude chieda qualcosa.</div>
-          <div id="opts"></div>
-          <button class="ghost" id="start" disabled>Parla</button>
+        <div class="turn s-off" id="turn">
+          <div class="orb"><div class="bars"><i></i><i></i><i></i></div></div>
+          <div>
+            <b id="turnLabel">Non collegato</b>
+            <small id="turnHint"></small>
+          </div>
         </div>
+
+        <p id="ask">In attesa che Claude chieda qualcosa.</p>
+        <div id="opts"></div>
+        <button class="pill ghost" id="start" disabled>Parla<kbd>spazio</kbd></button>
+
+        <div id="detail"></div>
 
         <div id="report" hidden>
           <h2>Ultima chiamata</h2>
@@ -81,16 +157,16 @@
 
     <script>
       // The page is a sound card with a face on it: PCM16 mono @ 24 kHz over the websocket in
-      // both directions, plus the two things only a screen can do — show the question and its
-      // options while you answer, and carry the button that opens the call at all.
+      // both directions, plus the three things only a screen can do — show the question and its
+      // options while you answer, carry the button that opens the call at all, and let you
+      // answer with the mouse when talking is not an option.
       const RATE = 24000;
       const $ = (id) => document.getElementById(id);
       const goBtn = $("go");
       const startBtn = $("start");
-      const statusEl = $("status");
-      const bar = $("bar");
+      const turnEl = $("turn");
 
-      const say = (html) => { statusEl.innerHTML = html; };
+      const detail = (html) => { $("detail").innerHTML = html; };
 
       const WORKLET = `
         class Cap extends AudioWorkletProcessor {
@@ -129,6 +205,11 @@
             // "clear" reported a drain nobody had asked for — which raced ahead of the real
             // request and made the player claim it had finished before it had started.
             this.drainId = null;
+            // Samples played since the last "still going" report. Node cannot know how long a
+            // sentence takes to speak — it knows how many bytes it sent, which is not the same
+            // thing once a tab is throttled or a buffer underruns. This side does know, so it
+            // says so while it plays instead of leaving the other side to guess.
+            this.sinceBeat = 0;
             this.port.onmessage = (e) => {
               const d = e.data;
               if (d.cmd === "clear") {
@@ -161,6 +242,21 @@
             if (this.drainId !== null && !this.q.length) {
               this.port.postMessage({ t: "drained", id: this.drainId });
               this.drainId = null;
+              this.sinceBeat = 0;
+            } else if (this.drainId !== null) {
+              // Four times a second, say how much audio is still queued. That number is the
+              // real answer to "how long until it has been heard".
+              this.sinceBeat += out.length;
+              if (this.sinceBeat >= sampleRate / 4) {
+                this.sinceBeat = 0;
+                let left = -this.off;
+                for (const b of this.q) left += b.length;
+                this.port.postMessage({
+                  t: "draining",
+                  id: this.drainId,
+                  leftMs: Math.max(0, (left / sampleRate) * 1000),
+                });
+              }
             }
             return true;
           }
@@ -177,15 +273,99 @@
       let superseded = false;
       const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
-      // Claude's question, written down. The same words are read out loud, but the options
-      // stay on screen: answering "la terza" is only safe if you can see which one that is.
+      // WHOSE TURN IT IS, derived rather than assigned. There is no message on the wire that
+      // says "Claude is talking now": what arrives is audio. So the four states are read off
+      // the three facts the page already has, in priority order — the microphone being open
+      // beats everything, then an armed question, then audio still to be heard. Assigning the
+      // state at each call site instead is how the old page ended up claiming "microfono
+      // spento" while the voice was mid-sentence.
+      const state = { connected: false, mic: false, armed: false, speakingUntil: 0 };
+      const TURNS = {
+        off: ["Non collegato", ""],
+        you: ["Tocca a te", "parla pure, si chiude da solo quando smetti"],
+        wait: ["Claude aspetta", "premi Parla, oppure scegli un'opzione"],
+        // Not "you can interrupt him": a click lands the moment the sentence ends, because the
+        // call is still waiting on the playback to drain. Saying otherwise would have you
+        // clicking twice.
+        claude: ["Claude parla", "puoi già scegliere un'opzione"],
+        idle: ["In attesa", "nessuna domanda in corso"],
+      };
+      function turnState() {
+        if (!state.connected) return "off";
+        if (state.mic) return "you";
+        if (state.armed) return "wait";
+        if (Date.now() < state.speakingUntil) return "claude";
+        return "idle";
+      }
+      let shown = null;
+      function render() {
+        const s = turnState();
+        if (s === shown) return;
+        shown = s;
+        turnEl.className = `turn s-${s}`;
+        $("turnLabel").textContent = TURNS[s][0];
+        $("turnHint").textContent = TURNS[s][1];
+      }
+      // The only state with an expiry rather than an event: playback ends when the audio runs
+      // out, and nothing announces that.
+      setInterval(render, 120);
+
+      // Claude's question, written down. The same words are read out loud, but the options stay
+      // on screen — and now they are buttons, because "la terza" is only safe if you can see
+      // which one that is, and because sometimes you simply cannot talk.
       function showAsk(msg) {
         $("ask").textContent = msg.spoken || "Claude ha una domanda.";
-        $("opts").innerHTML = (msg.options || [])
-          .map((o, i) => `<div>${i + 1}. ${esc(o)}</div>`)
-          .join("");
+        const box = $("opts");
+        box.textContent = "";
+        (msg.options || []).forEach((o, i) => {
+          const b = document.createElement("button");
+          b.className = "opt";
+          b.dataset.index = String(i);
+          b.innerHTML = `<span class="n">${i + 1}</span><span>${esc(o)}</span>`;
+          b.addEventListener("click", () => pick(i));
+          box.appendChild(b);
+        });
         $("report").hidden = true; // the previous call's receipt is not this call's answer
       }
+
+      // A click is an answer. It is sent once and the row is latched, so a second click cannot
+      // report a different position for a call that has already been decided.
+      let picked = false;
+      function pick(i) {
+        if (picked) return;
+        // A click that goes nowhere has to SAY so. With several tabs open on the same bridge the
+        // last one wins and the others keep showing the question they can no longer answer —
+        // and this used to return in silence, which is indistinguishable from a broken button.
+        if (ws?.readyState !== 1) {
+          detail("Questa scheda non è collegata: la risposta non è partita. Chiudi le altre schede e ricarica.");
+          return;
+        }
+        const b = $("opts").querySelector(`.opt[data-index="${i}"]`);
+        if (!b || b.disabled) return;
+        picked = true;
+        ws.send(JSON.stringify({ t: "pick", index: i }));
+        for (const o of $("opts").children) o.disabled = true;
+        b.classList.add("taken");
+        startBtn.disabled = true;
+        // Locally, immediately. The server disarms too, but a click has to stop looking like a
+        // question still waiting for an answer in the same frame it was made.
+        state.armed = false;
+        render();
+      }
+
+      // Keyboard, because the mouse is the slow way to press a numbered list. Space is the
+      // button; a digit is the option. Both are skipped when a button already has focus, or
+      // the browser would fire the click as well and we would answer twice.
+      document.addEventListener("keydown", (e) => {
+        if ($("live").hidden || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.target instanceof HTMLButtonElement) return;
+        if (e.key === " ") {
+          if (!startBtn.disabled) { e.preventDefault(); startBtn.click(); }
+          return;
+        }
+        const n = Number(e.key);
+        if (Number.isInteger(n) && n >= 1) pick(n - 1);
+      });
 
       // What was decided, and what went back to Claude. Without this the voice loop is the one
       // part of the session you cannot check afterwards: you hear a confirmation and have to
@@ -207,6 +387,12 @@
           );
         $("reportBody").innerHTML = rows.join("");
         $("report").hidden = false;
+        // The call is over: nothing on this page can answer it any more, and nothing is waiting.
+        for (const o of $("opts").children) o.disabled = true;
+        startBtn.disabled = true;
+        state.armed = false;
+        state.speakingUntil = 0;
+        render();
       }
 
       function connect() {
@@ -215,7 +401,9 @@
         ws.binaryType = "arraybuffer";
 
         ws.onopen = () => {
-          say('<span class="dot off"></span>Collegato. In attesa che Claude parli.');
+          state.connected = true;
+          detail("");
+          render();
           ws.send(JSON.stringify({ t: "ready", sampleRate: RATE }));
         };
         ws.onmessage = (ev) => {
@@ -223,57 +411,72 @@
             const pcm = new Int16Array(ev.data);
             const f = new Float32Array(pcm.length);
             for (let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 32768;
+            // How long this will take to hear. Nothing else tells the page that Claude is
+            // speaking, so the audio itself has to.
+            const now = Date.now();
+            state.speakingUntil = Math.max(now, state.speakingUntil) + (pcm.length / RATE) * 1000;
             playNode?.port.postMessage({ pcm: f }, [f.buffer]);
+            render();
             return;
           }
           const msg = JSON.parse(ev.data);
-          if (msg.t === "clear") playNode?.port.postMessage({ cmd: "clear" });
-          else if (msg.t === "drain") playNode?.port.postMessage({ cmd: "drain", id: msg.id });
+          if (msg.t === "clear") {
+            state.speakingUntil = 0;
+            playNode?.port.postMessage({ cmd: "clear" });
+          } else if (msg.t === "drain") playNode?.port.postMessage({ cmd: "drain", id: msg.id });
           else if (msg.t === "mic") setMic(!!msg.on);
-          else if (msg.t === "ask") showAsk(msg);
+          else if (msg.t === "ask") {
+            picked = false;
+            showAsk(msg);
+          }
           // The button is armed by the call, not by the microphone: the mic only comes on
           // after you press it, so tying the two together would disable it exactly when it
           // is needed.
-          else if (msg.t === "armed") startBtn.disabled = !msg.on;
-          else if (msg.t === "report") showReport(msg);
+          else if (msg.t === "armed") {
+            state.armed = !!msg.on;
+            startBtn.disabled = !msg.on || picked;
+          } else if (msg.t === "report") showReport(msg);
           // Another tab took over. Retrying would evict it two seconds later, and it would
           // evict us back — with three tabs open that never settles, and the cue plays into
           // whichever one is about to lose. Stand down instead.
           else if (msg.t === "superseded") superseded = true;
+          render();
         };
         ws.onclose = () => {
+          state.connected = false;
+          state.armed = false;
+          state.speakingUntil = 0;
           setMic(false);
           if (superseded) {
             // Stand down rather than reconnect — two tabs retrying every two seconds evict
             // each other forever. But standing down permanently makes the tab dead even after
             // the winner is gone, so it stays revivable by hand.
             startBtn.disabled = true;
-            say(
-              '<span class="dot off"></span>Un\'altra scheda ha preso il controllo. ' +
+            detail(
+              'Un\'altra scheda ha preso il controllo. ' +
                 'Chiudi questa, oppure <a href="#" id="retake">riprendi il controllo</a>.',
             );
             $("retake")?.addEventListener("click", (e) => {
               e.preventDefault();
               superseded = false;
-              say('<span class="dot off"></span>Riprendo…');
+              detail("Riprendo…");
               connect();
             });
+            render();
             return;
           }
-          say('<span class="dot off"></span>Scollegato. Riprovo…');
+          detail("Scollegato. Riprovo…");
+          render();
           setTimeout(connect, 2000);
         };
         ws.onerror = () => {};
       }
 
       function setMic(on) {
+        state.mic = on;
         capNode?.port.postMessage({ on });
-        if (!on) bar.style.width = "0%";
-        say(
-          on
-            ? '<span class="dot"></span><b>Ti ascolto.</b>'
-            : '<span class="dot off"></span>Collegato. Microfono spento.',
-        );
+        if (!on) document.documentElement.style.setProperty("--level", 0);
+        render();
       }
 
       startBtn.addEventListener("click", () => {
@@ -309,11 +512,16 @@
           capNode.port.onmessage = (e) => {
             const { pcm, peak } = e.data;
             if (ws?.readyState === 1) ws.send(pcm.buffer);
-            bar.style.width = `${Math.min(100, peak * 140)}%`;
+            document.documentElement.style.setProperty("--level", Math.min(1, peak * 1.4));
           };
           playNode.port.onmessage = (e) => {
-            if (e.data?.t === "drained" && ws?.readyState === 1)
-              ws.send(JSON.stringify({ t: "drained", id: e.data.id }));
+            const d = e.data;
+            if (!d || ws?.readyState !== 1) return;
+            if (d.t === "drained") ws.send(JSON.stringify({ t: "drained", id: d.id }));
+            // "still speaking, this much left" — what keeps the other side from timing out on
+            // a sentence that is simply long.
+            else if (d.t === "draining")
+              ws.send(JSON.stringify({ t: "draining", id: d.id, leftMs: d.leftMs }));
           };
 
           // A capture node is only pulled by the graph when it reaches the destination, so it
@@ -327,7 +535,7 @@
           connect();
         } catch (err) {
           goBtn.disabled = false;
-          say(`Errore: ${err?.message ?? err}`);
+          detail(`Errore: ${esc(String(err?.message ?? err))}`);
           if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "error", message: String(err?.message ?? err) }));
         }
       });

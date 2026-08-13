@@ -60,12 +60,53 @@ export function msSinceTabSeen(file = SEEN_FILE) {
   }
 }
 
+// A deadline that can be pushed back. The point of it being a separate, injectable thing is
+// that the rule it enforces — "give up only when the page has gone quiet, not when a guessed
+// duration runs out" — is testable without a browser, a port or a real second passing.
+export function createDeadline({ ms, onExpire, setTimer = setTimeout, clearTimer = clearTimeout }) {
+  let timer = null;
+  const arm = (delay) => {
+    if (timer) clearTimer(timer);
+    timer = setTimer(onExpire, delay);
+    if (timer?.unref) timer.unref();
+  };
+  arm(ms);
+  return {
+    extend: (delay) => arm(delay),
+    cancel: () => {
+      if (timer) clearTimer(timer);
+      timer = null;
+    },
+  };
+}
+
+// What a "still speaking, this much left" report is worth in extra patience: the page's own
+// count of queued audio, plus a quarter for scheduling, and never less than the stall window —
+// below that we would be timing out a tab that is answering us.
+export function patienceFor(leftMs, stallMs) {
+  return Math.max(stallMs, Number(leftMs) > 0 ? leftMs * 1.25 : 0);
+}
+
 function createBridge({ port = browserPort(), host = browserHost() } = {}) {
   const token = loadOrCreateToken();
   const micListeners = new Set();
   // The page's "Parla" button: the only way into a call. Kept as a listener set rather than a
   // single callback so an abandoned wait can unsubscribe without disarming the next one.
   const startListeners = new Set();
+  // An option clicked on the page. Cleared at the start of every call: a listener belonging to
+  // a call that is already over must not be woken by the next click, and it never unsubscribes
+  // on its own because a click has no timeout to lose.
+  const pickListeners = new Set();
+  // Resolvers that settle an outstanding waitForStart with "no button". Something else answered
+  // the question, so the press it is waiting for is never coming.
+  const abandonListeners = new Set();
+  // The question currently on the table, and whether the button is live. Kept because a tab can
+  // attach in the MIDDLE of a call — a reload, a laptop waking up, the page's own two-second
+  // retry — and everything it needs to answer was sent before it got here. Without this the
+  // page comes back blank: no options to click, the button dead, and a call that goes on
+  // waiting for three minutes for an answer the user has no way to give.
+  let pendingAsk = null;
+  let armed = false;
   let socket = null;
   let waiters = [];
   // Keyed by request id, not a plain list: an answer must only settle the question that asked
@@ -126,6 +167,9 @@ function createBridge({ port = browserPort(), host = browserHost() } = {}) {
       noteTabSeen();
       send({ t: "hello" });
       sendMicState();
+      // Catch the new tab up on the call it just walked into.
+      if (pendingAsk) send({ t: "ask", ...pendingAsk });
+      if (armed) send({ t: "armed", on: true });
       for (const r of waiters.splice(0)) r(true);
 
       ws.on("message", (data, isBinary) => {
@@ -139,27 +183,34 @@ function createBridge({ port = browserPort(), host = browserHost() } = {}) {
         } catch {
           return;
         }
-        if (msg.t === "drained") {
-          const settle = drainWaiters.get(msg.id);
-          if (settle) {
-            drainWaiters.delete(msg.id);
-            settle();
-          }
+        // Hand it to the waiter and let IT do the bookkeeping. Deleting the entry here as well
+        // was fatal: settle() ends in a `if (drainWaiters.delete(id))` guard, so the second
+        // delete returned false, resolve() was never called, and the call hung forever the
+        // moment it finished speaking — with the timeout log inside the same guard, silently.
+        if (msg.t === "drained") drainWaiters.get(msg.id)?.settle();
+        // The page is still speaking and has told us how much is left. Push the deadline back
+        // by that much: the only party that knows when a sentence ends is the one playing it.
+        else if (msg.t === "draining") {
+          drainWaiters.get(msg.id)?.heartbeat(msg.leftMs);
         }
         else if (msg.t === "start") {
           log("start requested from the page");
           for (const cb of [...startListeners]) cb();
+        }
+        // An option clicked. The index is passed on as it arrived and validated against the
+        // offered options by the caller, which is the only place that knows how many there were.
+        else if (msg.t === "pick") {
+          log(`option ${Number(msg.index) + 1} clicked on the page`);
+          for (const cb of [...pickListeners]) cb(Number(msg.index));
         } else if (msg.t === "error") log(`page reported: ${msg.message}`);
         else if (msg.t === "ready") log(`page ready (mic @ ${msg.sampleRate} Hz)`);
       });
       ws.on("close", () => {
         if (socket === ws) socket = null;
         log("tab disconnected");
-        // Nobody is going to answer a drain request from a closed tab.
-        for (const [id, settle] of [...drainWaiters]) {
-          drainWaiters.delete(id);
-          settle();
-        }
+        // Nobody is going to answer a drain request from a closed tab. Same rule as above:
+        // settle() owns the deletion, so deleting here first would swallow the resolve.
+        for (const w of [...drainWaiters.values()]) w.settle();
       });
       ws.on("error", (e) => log(`socket error: ${String(e?.message ?? e)}`));
     });
@@ -219,43 +270,96 @@ function createBridge({ port = browserPort(), host = browserHost() } = {}) {
 
     // What Claude is asking, for the page to show while it waits. The user reads the options
     // as well as hearing them: a list of four is hard to hold in your head from audio alone.
-    ask: ({ spoken, options }) => send({ t: "ask", spoken, options: options || [] }),
+    ask: ({ spoken, options }) => {
+      pendingAsk = { spoken, options: options || [] };
+      send({ t: "ask", ...pendingAsk });
+    },
 
     // Resolves true when the user presses the button, false when nobody does in time. This is
     // the entire trigger: no wake word, no level meter running in an empty room.
     waitForStart(ms) {
+      armed = true;
       send({ t: "armed", on: true });
       return new Promise((resolve) => {
         const done = (v) => {
           clearTimeout(t);
           startListeners.delete(onStart);
+          abandonListeners.delete(onAbandon);
+          armed = false;
+          // Pressed: the question stays on the table, the conversation is about to happen.
+          // Not pressed — timed out, or answered with a click — and it is over. Keeping it
+          // would replay a dead question to the next tab that attaches, which looks alive and
+          // answers to nobody.
+          if (!v) pendingAsk = null;
           send({ t: "armed", on: false });
           resolve(v);
         };
         const onStart = () => done(true);
+        const onAbandon = () => done(false);
         startListeners.add(onStart);
+        abandonListeners.add(onAbandon);
         const t = setTimeout(() => done(false), ms);
         if (t.unref) t.unref();
       });
     },
 
-    report: (r) => send({ t: "report", ...r }),
+    // Settle that wait now. Leaving it pending is not harmless: until it resolves, the page is
+    // still told it is armed and the waiting cue keeps beeping every couple of seconds. So a
+    // question answered with the mouse looked exactly like a question nobody had answered.
+    abandonStart: () => {
+      for (const cb of [...abandonListeners]) cb();
+    },
+
+    // Resolves with the index of an option clicked on the page, and otherwise never — a click
+    // has no deadline of its own, it just loses the race to whatever else settles first.
+    waitForPick() {
+      return new Promise((resolve) => pickListeners.add(resolve));
+    },
+    // Called when a new question is armed. Without it every call would leave its own resolver
+    // behind, and one click would wake all of them — including the ones whose call is long over.
+    forgetPicks: () => pickListeners.clear(),
+
+    // The receipt is the end of the call: whatever was on the table has been answered.
+    report: (r) => {
+      pendingAsk = null;
+      send({ t: "report", ...r });
+    },
     clear: () => send({ t: "clear" }),
     // Ask the page to tell us when the last sample has actually been HEARD. Estimating that
     // from bytes written is what clipped the agent's closing words before.
-    drain(timeoutMs) {
+    //
+    // `timeoutMs` is not how long the audio is expected to take — the page reports that itself,
+    // four times a second, and every report pushes the deadline back. It is the answer to a
+    // different question: how long a tab may go silent before we accept it is not coming back.
+    // A page too old to send those reports still gets the whole opening budget.
+    drain(timeoutMs, { stallMs = 5000 } = {}) {
       if (socket?.readyState !== 1) return Promise.resolve();
       const id = ++drainSeq;
       send({ t: "drain", id });
       return new Promise((resolve) => {
-        drainWaiters.set(id, resolve);
-        const t = setTimeout(() => {
+        let beats = 0;
+        const give = (why) => {
           if (drainWaiters.delete(id)) {
-            log(`drain ${id} timed out after ${timeoutMs} ms`);
+            deadline.cancel();
+            if (why) log(why);
             resolve();
           }
-        }, timeoutMs);
-        if (t.unref) t.unref();
+        };
+        const deadline = createDeadline({
+          ms: timeoutMs,
+          onExpire: () =>
+            give(
+              `drain ${id} gave up after ${beats} progress report${beats === 1 ? "" : "s"} — ` +
+                `the tab stopped answering`,
+            ),
+        });
+        drainWaiters.set(id, {
+          settle: () => give(null),
+          heartbeat: (leftMs) => {
+            beats++;
+            deadline.extend(patienceFor(leftMs, stallMs));
+          },
+        });
       });
     },
   };
@@ -344,18 +448,17 @@ export function startMic(onChunk) {
   };
 }
 
-// How long to wait for the page to finish speaking, in wall clock.
+// The OPENING patience for a page that has not reported anything yet, in wall clock.
 //
-// This used to be `durationMs(pcm) + 2000` capped at 20 s, and the cap was the bug. While the
-// spoken lines were one or two sentences nothing ever reached it. The moment the brain started
-// EXPLAINING — several sentences, twenty seconds and more of audio — the wait ran out while the
-// tab was still talking: the call moved on, opened the microphone over the tail of its own
-// sentence, heard nothing usable, and the next line began with a clear() that cut the sentence
-// off mid-word. What you hear is the voice interrupting itself and then asking you to repeat.
+// It used to be the whole story: `durationMs(pcm) + 2000` capped at 20 s. The cap was the bug —
+// while the spoken lines were one or two sentences nothing reached it, and the moment the brain
+// started EXPLAINING the wait ran out mid-sentence, the microphone opened over the tail, and
+// the next line's clear() cut the sentence off mid-word.
 //
-// So the budget is proportional, with a floor for the short lines and a ceiling that exists
-// only so a tab that has gone away cannot hang a call forever — a tab that CLOSES already
-// settles the drain, so this ceiling is the dead-but-still-connected case alone.
+// It is no longer a guess at how long the audio takes: the page counts what it still has queued
+// and says so four times a second, and each report pushes the deadline back (see drain()). This
+// value only has to cover the gap before the FIRST report — and to be the whole budget for a
+// cached page too old to send any.
 export function drainBudgetMs(pcm, { floorMs = 3000, ceilingMs = 180000 } = {}) {
   const audioMs = durationMs(pcm);
   return Math.min(audioMs + Math.max(floorMs, audioMs * 0.25), ceilingMs);
@@ -445,6 +548,7 @@ export function createAudio({ cfg = config } = {}) {
     async arm({ spoken, options }) {
       const ok = await ensureBrowserAudio();
       if (!ok) return false;
+      bridge.forgetPicks();
       bridge.ask({ spoken, options });
       // The cue that says "Claude is waiting for you". It is the ONLY thing that happens
       // before the user clicks — no listening, no model loaded, nothing paid for.
@@ -467,6 +571,13 @@ export function createAudio({ cfg = config } = {}) {
       if (timer.unref) timer.unref();
       return bridge.waitForStart(ms).finally(() => clearInterval(timer));
     },
+
+    // The mouse path into the same call. Never resolves when there is no bridge, which is what
+    // makes it safe to race against everything else.
+    waitForPick: () => bridge?.waitForPick() ?? new Promise(() => {}),
+
+    // Stop waiting for the button. Called when something else has already answered.
+    abandonWait: () => bridge?.abandonStart(),
 
     async play(pcm, { bargeInMs = cfg.bargeInMs, level = cfg.bargeInLevel } = {}) {
       if (!pcm?.length || !bridge) return { interrupted: false };
