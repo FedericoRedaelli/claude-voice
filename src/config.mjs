@@ -151,11 +151,15 @@ export const config = {
   })(),
 
   // What to say when a turn came back empty, or in an alphabet nobody spoke. Both are read
-  // out loud, so they stay short.
-  retryLine: process.env.VOICE_RETRY_LINE || "Non ho sentito. Puoi ripetere?",
+  // out loud, so they stay short. They are the only two lines in the pipeline the models do
+  // not write, so they do NOT follow VOICE_LANG — set them in .env when you change it.
+  // (They were Italian by default while VOICE_LANG defaulted to English: a leftover from when
+  // this was a single-user project, and the one place the loop spoke the wrong language.)
+  retryLine: process.env.VOICE_RETRY_LINE || "Sorry, I didn't catch that. Can you repeat?",
   // What to say when the transcript and the brain name different options. Acting on either
   // would be a guess, and this is the guess the whole project exists to stop.
-  confirmLine: process.env.VOICE_CONFIRM_LINE || "Non sono sicuro di quale hai scelto. Quale?",
+  confirmLine:
+    process.env.VOICE_CONFIRM_LINE || "I'm not sure which one you picked. Which is it?",
 
   // Playback speed of the voice (0.25-1.5). While it talks you are waiting, so length is not
   // a style issue but the thing standing between you and answering.

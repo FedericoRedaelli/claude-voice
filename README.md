@@ -150,6 +150,7 @@ overrides them. The ones worth knowing:
 | `OPENROUTER_API_KEY` | — | the only key |
 | `VOICE_MODE` | `voice` | `text` for the terminal loop |
 | `VOICE_LANG` | `English` | the language spoken, and the transcriber's hint |
+| `VOICE_RETRY_LINE` / `VOICE_CONFIRM_LINE` | English | the only two lines no model writes — set them when you change `VOICE_LANG` |
 | `VOICE_TTS_MODEL` / `VOICE_TTS_VOICE` | MAI-Voice-2-Flash / Harper | see the note below |
 | `VOICE_BRAIN_SORT` | `throughput` | how OpenRouter picks a provider for the brain |
 | `VOICE_BRAIN_PROVIDER` | — | pin named providers instead of sorting |
