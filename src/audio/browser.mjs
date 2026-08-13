@@ -87,8 +87,15 @@ export function patienceFor(leftMs, stallMs) {
   return Math.max(stallMs, Number(leftMs) > 0 ? leftMs * 1.25 : 0);
 }
 
-function createBridge({ port = browserPort(), host = browserHost() } = {}) {
-  const token = loadOrCreateToken();
+// Exported for the protocol tests. `port: 0` asks the OS for a free one and `token` skips the
+// on-disk token, so a test can open a real socket without a fixed port or touching the file the
+// running session depends on. Nothing else constructs this — normal use goes through
+// ensureBrowserAudio, which owns the one-bridge-per-process rule.
+export function createBridge({
+  port = browserPort(),
+  host = browserHost(),
+  token = loadOrCreateToken(),
+} = {}) {
   const micListeners = new Set();
   // The page's "Parla" button: the only way into a call. Kept as a listener set rather than a
   // single callback so an abandoned wait can unsubscribe without disarming the next one.
@@ -187,6 +194,10 @@ function createBridge({ port = browserPort(), host = browserHost() } = {}) {
         // was fatal: settle() ends in a `if (drainWaiters.delete(id))` guard, so the second
         // delete returned false, resolve() was never called, and the call hung forever the
         // moment it finished speaking — with the timeout log inside the same guard, silently.
+        // Hand it to the waiter and let IT do the bookkeeping. Deleting the entry here as well
+        // was fatal: settle() ends in a `if (drainWaiters.delete(id))` guard, so the second
+        // delete returned false, resolve() was never called, and the call hung forever the
+        // moment it finished speaking — with the timeout log inside the same guard, silently.
         if (msg.t === "drained") drainWaiters.get(msg.id)?.settle();
         // The page is still speaking and has told us how much is left. Push the deadline back
         // by that much: the only party that knows when a sentence ends is the one playing it.
@@ -226,17 +237,23 @@ function createBridge({ port = browserPort(), host = browserHost() } = {}) {
   // live microphone open.
   const sendMicState = () => send({ t: "mic", on: micListeners.size > 0 });
 
-  const url = () => `http://127.0.0.1:${port}/?t=${token}`;
+  // The port actually in use, which is only the requested one when it was not 0.
+  let bound = port;
+  const url = () => `http://127.0.0.1:${bound}/?t=${token}`;
 
   const listen = () =>
     new Promise((resolve, reject) => {
       server.once("error", reject);
-      server.listen(port, host, () => resolve());
+      server.listen(port, host, () => {
+        bound = server.address()?.port ?? port;
+        resolve();
+      });
     });
 
   return {
     url,
     listen,
+    port: () => bound,
     connected: () => socket?.readyState === 1,
     // Resolves true once a tab is on the other end, false if none shows up in time.
     waitForTab(ms) {

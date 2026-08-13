@@ -18,6 +18,7 @@
     "server": "node bin/voice-mcp.mjs",
     "test": "node --test --test-timeout=15000 test/*.test.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
+    "smoke:voice": "node scripts/smoke-voice.mjs",
     "try": "node scripts/try-call.mjs"
   },
   "dependencies": {
