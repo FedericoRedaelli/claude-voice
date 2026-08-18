@@ -1,7 +1,7 @@
 {
   "name": "claude-voice",
   "description": "A voice loop for Claude Code. At every stopping point Claude's answer is spoken aloud and you reply by voice; your decision flows back so Claude continues.",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "author": {
     "name": "Federico Redaelli"
   },

@@ -193,7 +193,14 @@ what was playing is what gets resumed, and a player you had deliberately stopped
 Windows has no way to ask, so there it is the media key and therefore a blind toggle. macOS
 will ask you once for permission to control Spotify or Music; refuse it and the feature simply
 does nothing. `VOICE_PAUSE_CMD` / `VOICE_RESUME_CMD` take over completely if your player is
-something else.
+something else — and they are also the way out of the Remote-SSH case, if your own machine
+accepts SSH: `VOICE_PAUSE_CMD="ssh my-laptop 'playerctl pause'"` runs the pause where the
+speakers are. `/voice-doctor` reports which machine it would reach as `pausesMedia`.
+
+Why not do it from the page, which IS on the machine with the speakers? Because a browser tab
+cannot pause another application, or another tab: no desktop browser exposes that, and the
+Media Session API only describes our own playback to the OS (the audio focus that pauses other
+players is an Android behaviour). It is the sandbox, not a design choice.
 
 **Nothing is billed for a call you don't take.** The button is the only trigger. Before you
 press it there is no microphone, no transcription and no completion — only a soft pulse every

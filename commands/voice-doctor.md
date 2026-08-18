@@ -36,4 +36,15 @@ it separates the two causes that look identical from the chat:
 - `mcp.lastLaunches` showing recent lines — the server does start, so the fault is elsewhere;
   a line that says `launched` with no `serving` after it is a start that died on its imports.
 
+`pausesMedia` answers "would pausing my music work here", which is only ever a question about
+WHICH machine: this runs where Claude Code runs.
+
+- `would` null — nothing here can pause anything, or no player was found.
+- `would.kind` `windows` on WSL — it reaches the Windows host. If that host is also where the
+  browser is (VS Code Remote-WSL, one physical machine) this is the right machine and
+  `VOICE_PAUSE_MEDIA=1` works. Say that plainly.
+- `would.kind` set while the tab is opened on a DIFFERENT machine (see `opensBrowser`) — it
+  would pause the music on this one, which nobody is listening to. Say so instead of
+  recommending it.
+
 Do not print the key, and do not offer to change any setting unless the user asks.

@@ -16,6 +16,8 @@ import { missingDeps, pluginRoot } from "../src/bootstrap.mjs";
 import { envFiles, parseEnvFile, pluginEnvFile, userEnvDir, userEnvFile } from "../src/env.mjs";
 import { opener } from "../src/bridge-url.mjs";
 import { mcpStatus } from "../src/diagnose.mjs";
+import { resolveMedia } from "../src/media.mjs";
+import { onPath } from "../src/bridge-url.mjs";
 
 const EXAMPLE = join(pluginRoot, ".env.example");
 
@@ -118,6 +120,16 @@ async function status() {
     browserPort: Number(process.env.VOICE_BROWSER_PORT) || 8787,
     // Why talk_to_user might not be there at all: crashed, or never launched.
     mcp: mcpStatus(),
+    // Whether pausing other audio would reach the machine with the speakers. The question is
+    // never "can we pause" — it is "pause WHOSE music": this runs where Claude Code runs, and
+    // that is the user's own machine in some setups and a server in others.
+    pausesMedia: {
+      enabled: process.env.VOICE_PAUSE_MEDIA === "1",
+      would: resolveMedia({
+        env: { ...process.env, VOICE_PAUSE_MEDIA: "1" },
+        has: (c) => onPath(c),
+      }),
+    },
   };
 }
 
