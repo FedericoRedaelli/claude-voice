@@ -145,6 +145,11 @@ export const config = {
   // working, and it is generated rather than a file: nothing to ship, and two numbers tune it
   // instead of a re-recording.
   thinkSound: process.env.VOICE_THINK_SOUND !== "0",
+  // The three one-shot cues — the call opening, the pulse while it waits, the call closing.
+  // 0 falls back to the synthesised tones the page has always had, which is also what happens
+  // by itself if a sound file will not load.
+  sfxSound: process.env.VOICE_SFX !== "0",
+  sfxVolume: process.env.VOICE_SFX_VOLUME === undefined ? 0.6 : Number(process.env.VOICE_SFX_VOLUME) || 0,
   // Low on purpose: audible under nothing, forgettable under speech. Loud enough to notice is
   // loud enough to be told to turn off.
   thinkVolume:

@@ -208,14 +208,49 @@ test("a socket with the wrong token never becomes a tab", async () => {
 });
 
 // The page has no configuration of its own, so anything it needs to know rides on the question.
-test("the question carries whether the waiting sound plays, and how loud", async () => {
+test("the question carries whether the sounds play, and how loud", async () => {
   await withBridge(async ({ bridge, connect }) => {
     const tab = await connect();
     bridge.ask({ spoken: "Apro la PR?", options: ["Sì", "No"] });
     const ask = await tab.next("ask");
     assert.equal(ask.think.on, true);
-    assert.equal(typeof ask.think.volume, "number");
     assert.ok(ask.think.volume > 0 && ask.think.volume < 0.3, "audible, and impossible to blast");
+    assert.equal(ask.sfx.on, true);
+    assert.ok(ask.sfx.volume > 0 && ask.sfx.volume <= 1);
+  });
+});
+
+// The cues are named, not sent as audio: 250 KB of mp3 down the socket on every tick, for a
+// sound the page can hold, is the version of this that fails on a slow tunnel.
+test("a cue travels as a name and the loop as a switch", async () => {
+  await withBridge(async ({ bridge, connect }) => {
+    const tab = await connect();
+    bridge.sfx("start");
+    assert.equal((await tab.next("sfx")).name, "start");
+    bridge.sfx("thinking", true);
+    // `next` answers with the FIRST message of a type, past or future, so waiting for the
+    // second one means waiting for it, not reading the array a millisecond too early.
+    const cues = tab.seen.filter((m) => m.t === "sfx");
+    while (cues.length < 2) {
+      await new Promise((r) => setTimeout(r, 10));
+      cues.splice(0, cues.length, ...tab.seen.filter((m) => m.t === "sfx"));
+    }
+    assert.deepEqual({ name: cues[1].name, on: cues[1].on }, { name: "thinking", on: true });
+  });
+});
+
+// Path traversal, on the one server in this project that serves files from disk.
+test("the sounds are served, and only the sounds", async () => {
+  await withBridge(async ({ bridge }) => {
+    const base = `http://127.0.0.1:${bridge.port()}`;
+    const ok = await fetch(`${base}/sounds/attention.wav?t=${TOKEN}`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("content-type"), "audio/wav");
+    assert.ok((await ok.arrayBuffer()).byteLength > 1000);
+
+    assert.equal((await fetch(`${base}/sounds/attention.wav`)).status, 403, "no token, no sound");
+    assert.equal((await fetch(`${base}/sounds/../../.env?t=${TOKEN}`)).status, 404);
+    assert.equal((await fetch(`${base}/sounds/nope.mp3?t=${TOKEN}`)).status, 404);
   });
 });
 

@@ -128,14 +128,24 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
       if (clickIsReal()) return closeOnClick();
       captured = await utterance;
     }
+    // The wait the user actually feels: two network calls with nothing to look at or listen
+    // to. It is switched on here, and off at every exit from the gap, because this is the only
+    // file that knows a model is running.
+    audio.working?.(true);
     const heard = await stt.transcribe(captured);
     mark("heard", { chars: (heard ?? "").length });
-    if (stopped()) return { kind: "end" };
+    // An aborted call leaves the room; a loop still playing into it would be the last thing
+    // heard, forever. Every exit from the gap turns it off, this one included.
+    if (stopped()) {
+      audio.working?.(false);
+      return { kind: "end" };
+    }
 
     // Silence is not a turn, and neither is a transcript in the wrong alphabet: that is the
     // transcriber inventing words out of room noise. Asking again costs one synthesis;
     // sending either to the brain costs a turn AND invites it to answer for the user.
     if (!heard || looksGarbled(heard, cfg.langCode)) {
+      audio.working?.(false);
       if (heard) log(`transcript ${JSON.stringify(heard)} is not ${cfg.langCode} — asking again`);
       say = cfg.retryLine;
       continue;
@@ -145,6 +155,7 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     // S4 — choosing, asking, or done?
     const routed = await brain.route({ message, options, turns });
     mark("routed", { kind: routed.kind });
+    audio.working?.(false);
     if (stopped()) return { kind: "end" };
 
     // The brain answered with nothing. Ask again rather than reporting a blank decision: one

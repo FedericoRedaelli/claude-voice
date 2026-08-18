@@ -30,7 +30,7 @@ import {
 } from "../bridge-url.mjs";
 import { config } from "../config.mjs";
 import { appendFeedback, buildRecord } from "../feedback.mjs";
-import { beepPcm, durationMs, rmsPct } from "../pcm.mjs";
+import { durationMs, rmsPct } from "../pcm.mjs";
 
 // Re-exported so the audio backend stays the one place the rest of the code imports from.
 export { browserHost, browserPort, hasDisplay, loadOrCreateToken, pageUrl };
@@ -47,6 +47,7 @@ function pluginVersion() {
   }
 }
 const PAGE = join(HERE, "..", "..", "public", "voice.html");
+const SOUNDS = join(HERE, "..", "..", "public", "sounds");
 const log = (m) => process.stderr.write(`[claude-voice] audio/browser: ${m}\n`);
 
 // One bridge per process. The MCP server is long-lived and the tab is meant to outlive a
@@ -138,12 +139,38 @@ export function createBridge({
   const html = readFileSync(PAGE, "utf8");
   const server = createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
-    if (url.pathname !== "/") {
-      res.writeHead(404).end("not found");
-      return;
-    }
+    // The token guards everything this server has, sounds included. Not because a cue is a
+    // secret, but because one rule is auditable and two are how the exception grows.
     if (url.searchParams.get("t") !== token) {
       res.writeHead(403).end("bad token");
+      return;
+    }
+    // The cues. A whitelist rather than a path join: `/sounds/../../.env` is the oldest bug in
+    // static file serving, and there are four files here — none of them worth a traversal.
+    if (url.pathname.startsWith("/sounds/")) {
+      const name = url.pathname.slice("/sounds/".length);
+      if (!/^[a-z0-9-]+\.(mp3|wav)$/.test(name)) {
+        res.writeHead(404).end("not found");
+        return;
+      }
+      let bytes;
+      try {
+        bytes = readFileSync(join(SOUNDS, name));
+      } catch {
+        res.writeHead(404).end("not found");
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": name.endsWith(".wav") ? "audio/wav" : "audio/mpeg",
+        // Unlike the page, these do not change between restarts, and re-fetching a quarter of
+        // a megabyte at the start of every call would be silly.
+        "cache-control": "public, max-age=3600",
+      });
+      res.end(bytes);
+      return;
+    }
+    if (url.pathname !== "/") {
+      res.writeHead(404).end("not found");
       return;
     }
     // Never cached. The URL and the token survive restarts on purpose, so without this the
@@ -321,6 +348,7 @@ export function createBridge({
         spoken,
         options: options || [],
         think: { on: config.thinkSound, volume: config.thinkVolume },
+        sfx: { on: config.sfxSound, volume: config.sfxVolume },
       };
       send({ t: "ask", ...pendingAsk });
     },
@@ -378,6 +406,9 @@ export function createBridge({
       lastReport = r;
       send({ t: "report", ...r });
     },
+    // A cue, by name. The page owns the sound; this owns WHEN — which is the half that has to
+    // agree with the state of the call, and the half that is testable without a speaker.
+    sfx: (name, on) => send({ t: "sfx", name, ...(on === undefined ? {} : { on })  }),
     clear: () => send({ t: "clear" }),
     // Ask the page to tell us when the last sample has actually been HEARD. Estimating that
     // from bytes written is what clipped the agent's closing words before.
@@ -621,7 +652,7 @@ export function createAudio({ cfg = config } = {}) {
       bridge.ask({ spoken, options });
       // The cue that says "Claude is waiting for you". It is the ONLY thing that happens
       // before the user clicks — no listening, no model loaded, nothing paid for.
-      bridge.sendPcm(beepPcm({ freq: 880, ms: 160 }));
+      bridge.sfx("start");
       return true;
     },
 
@@ -633,13 +664,15 @@ export function createAudio({ cfg = config } = {}) {
       if (!bridge) return Promise.resolve(false);
       if (!tickMs) return bridge.waitForStart(ms);
 
-      const timer = setInterval(
-        () => bridge?.sendPcm(beepPcm({ freq: 660, ms: 90, volume })),
-        tickMs,
-      );
+      const timer = setInterval(() => bridge?.sfx("attention"), tickMs);
       if (timer.unref) timer.unref();
       return bridge.waitForStart(ms).finally(() => clearInterval(timer));
     },
+
+    // The models are running: transcription, then the brain. Nothing else can tell the page
+    // this — the gap has no messages in it, which is exactly the problem the sound solves.
+    // call.mjs calls it because call.mjs is the only file that knows when a model is running.
+    working: (on) => bridge?.sfx("thinking", !!on),
 
     // The mouse path into the same call. Never resolves when there is no bridge, which is what
     // makes it safe to race against everything else.

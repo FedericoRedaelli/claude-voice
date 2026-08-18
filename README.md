@@ -156,13 +156,27 @@ made it necessary. "Nimm die zweite" is not in any source file here.
 full text out loud — you are listening, not reading it. It only hands the turn back to Claude
 when you decide something, ask for work, or ask something the text genuinely does not answer.
 
-**The wait has a sound.** Between the microphone closing and the answer being spoken there are
-two network calls — transcription, then the brain — and on a slow provider that is six seconds
-of nothing. Silence there is indistinguishable from a server that has died, and a spinner is no
-answer: you are listening, not watching. So the page hums, quietly, for exactly that gap. It is
-generated in the page rather than shipped as a file, and it breathes once every four and a half
-seconds because a repeating beep in a four-second gap is a fire alarm. `VOICE_THINK_SOUND=0`
-turns it off, `VOICE_THINK_VOLUME` moves it.
+**Four sounds, and the server decides when.** You are listening to this thing, not watching it,
+so the states that matter are audible:
+
+| Cue | When | File |
+| --- | --- | --- |
+| opening | a question arrives and the button arms | `public/sounds/call-start.mp3` |
+| waiting | every few seconds for as long as nobody answers | `public/sounds/attention.wav` |
+| working | transcription and the brain, looped | `public/sounds/thinking.mp3` |
+| closing | the decision goes back to Claude | `public/sounds/call-end.mp3` |
+
+The working cue exists because that gap — microphone closed, two network calls, one to six
+seconds — has nothing in it. From the page it is indistinguishable from a server that has died.
+
+WHEN each one plays is a message from the server, not something the page guesses: the page
+cannot see a model running. The files themselves the page holds, so a cue costs one fetch and
+not a quarter of a megabyte down the socket every few seconds. Replace any of them by dropping
+a file with the same name into `public/sounds/`; `attention.wav` is generated, and
+`npm run sounds` rebuilds it from `scripts/make-attention.mjs` if you want to change its shape.
+Anything that fails to load falls back to a synthesised tone rather than to silence.
+`VOICE_SFX=0` uses the tones on purpose; `VOICE_SFX_VOLUME` and `VOICE_THINK_VOLUME` set the
+levels, and `VOICE_THINK_SOUND=0` turns the working loop off.
 
 **Nothing is billed for a call you don't take.** The button is the only trigger. Before you
 press it there is no microphone, no transcription and no completion — only a soft pulse every
@@ -242,8 +256,10 @@ overrides them. The ones worth knowing:
 | `VOICE_BROWSER_OPEN` | auto | `0` never opens a browser, `1` always tries |
 | `VOICE_BROWSER_CMD` | — | the exact command that opens a URL, when no guess fits |
 | `VOICE_FEEDBACK_FILE` | `~/.claude-voice/feedback.jsonl` | where the comment box writes |
-| `VOICE_THINK_SOUND` | `1` | the hum while transcription and the brain run; `0` for silence |
-| `VOICE_THINK_VOLUME` | `0.05` | how loud that hum is (0–0.3) |
+| `VOICE_THINK_SOUND` | `1` | the loop while transcription and the brain run; `0` for silence |
+| `VOICE_THINK_VOLUME` | `0.05` | how loud that loop is (0–0.3) |
+| `VOICE_SFX` | `1` | the recorded cues; `0` falls back to synthesised tones |
+| `VOICE_SFX_VOLUME` | `0.6` | how loud the opening, waiting and closing cues are (0–1) |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
 | `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
@@ -294,7 +310,7 @@ diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server 
 ## Working on it
 
 ```bash
-npm test           # 139 tests, none of them touches the network
+npm test           # 143 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```

@@ -415,3 +415,31 @@ test("an option picked in German, named in no source file", async () => {
     value: "Fai altri test",
   });
 });
+
+// The loop that says "the models are running" has one hard rule: it must not still be playing
+// when the call is over. Every exit from the gap turns it off — the retry, the answer, an abort.
+test("the working cue is on for the models and off before anything is said", async () => {
+  const f = fakes({
+    heard: ["la prima"],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
+  });
+  const flips = [];
+  f.audio.working = (on) => flips.push(on);
+
+  await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(flips, [true, false]);
+});
+
+// A transcript that is silence or noise never reaches the brain — and the sound must not keep
+// playing into the retry, which is a second question being read out loud.
+test("a rejected transcript switches the working cue off before asking again", async () => {
+  const f = fakes({
+    heard: ["", "la prima"],
+    routed: [{ kind: "decide", decision: { kind: "choice", value: OPTIONS[0], optionIndex: 1 } }],
+  });
+  const flips = [];
+  f.audio.working = (on) => flips.push(on);
+
+  await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(flips, [true, false, true, false], "one on/off per turn, retry included");
+});
