@@ -315,7 +315,13 @@ export function createBridge({
     // What Claude is asking, for the page to show while it waits. The user reads the options
     // as well as hearing them: a list of four is hard to hold in your head from audio alone.
     ask: ({ spoken, options }) => {
-      pendingAsk = { spoken, options: options || [] };
+      // The waiting sound travels with the question: the page has no configuration of its own,
+      // and this is the one message it is guaranteed to get before any waiting starts.
+      pendingAsk = {
+        spoken,
+        options: options || [],
+        think: { on: config.thinkSound, volume: config.thinkVolume },
+      };
       send({ t: "ask", ...pendingAsk });
     },
 

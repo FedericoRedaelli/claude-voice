@@ -139,6 +139,17 @@ export const config = {
   //
   // The feature is worth little — the sentences are two seconds long — and the failure is
   // worth a lot: you lose the question you were being asked. VOICE_BARGE_IN=1 turns it on.
+  // The gap between "you stopped talking" and "the voice answers" is transcription plus the
+  // brain: two network calls, measured between 1 and 6 seconds. Silence there reads as a hang —
+  // the page looks identical to one whose server has died. A quiet pulse says the machine is
+  // working, and it is generated rather than a file: nothing to ship, and two numbers tune it
+  // instead of a re-recording.
+  thinkSound: process.env.VOICE_THINK_SOUND !== "0",
+  // Low on purpose: audible under nothing, forgettable under speech. Loud enough to notice is
+  // loud enough to be told to turn off.
+  thinkVolume:
+    process.env.VOICE_THINK_VOLUME === undefined ? 0.05 : Number(process.env.VOICE_THINK_VOLUME) || 0,
+
   bargeIn: process.env.VOICE_BARGE_IN === "1",
   bargeInLevel: Number(process.env.VOICE_BARGE_IN_LEVEL) || 12,
   bargeInMs: Number(process.env.VOICE_BARGE_IN_MS) || 600,

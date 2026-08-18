@@ -77,6 +77,14 @@
       .s-claude .bars i:nth-child(3) { animation-delay: .3s; }
       .s-claude b { color: var(--accent); }
       @keyframes eq { 0%, 100% { height: 8px; } 50% { height: 26px; } }
+      /* Waiting on the models: the same slow breath as the sound, so what you see and what you
+         hear are one thing rather than two. */
+      .s-think .orb { background: #1b1c26; box-shadow: inset 0 0 0 1px #33364a; }
+      .s-think .orb { animation: breath 4.5s ease-in-out infinite; }
+      .s-think .bars i { background: #7d86b8; animation: eq 1.6s ease-in-out infinite; }
+      .s-think .bars i:nth-child(2) { animation-delay: .2s; }
+      .s-think .bars i:nth-child(3) { animation-delay: .4s; }
+
       .s-you .orb { background: #17251c; box-shadow: inset 0 0 0 1px #2f5540; }
       .s-you .orb::before { border-color: var(--green); transform: scale(calc(1 + var(--level) * .3)); }
       .s-you .bars i { background: var(--green); height: calc(8px + var(--level) * 16px); }
@@ -316,15 +324,90 @@
         // call is still waiting on the playback to drain. Saying otherwise would have you
         // clicking twice.
         claude: ["Claude parla", "puoi già scegliere un'opzione"],
+        think: ["Ci sto lavorando", "trascrivo quello che hai detto e decido"],
         idle: ["In attesa", "nessuna domanda in corso"],
       };
       function turnState() {
         if (!state.connected) return "off";
         if (state.mic) return "you";
+        // Read off the sound rather than kept as a second flag: one of them would go stale,
+        // and the one that must not lie is the audible one.
+        if (thinking.running) return "think";
         if (state.armed) return "wait";
         if (Date.now() < state.speakingUntil) return "claude";
         return "idle";
       }
+      // THE WAITING SOUND. Between the microphone closing and the answer being spoken there
+      // are two network calls — transcription, then the brain — and on a slow provider that is
+      // six seconds of nothing. Silence there is indistinguishable from a server that has died,
+      // and the honest fix is not a spinner nobody is looking at: you are listening, not
+      // watching, so the reassurance has to be audible.
+      //
+      // Generated, not a file: no asset to ship through the bridge, and it is two oscillators
+      // and a filter. A slow breath rather than a beep — a repeating beep in a four-second gap
+      // is a fire alarm, and you would turn it off within the hour.
+      const thinking = (() => {
+        let ctx = null, gain = null, nodes = [], on = false, volume = 0.05, enabled = true;
+        return {
+          attach(audioCtx) {
+            ctx = audioCtx;
+          },
+          configure(cfg) {
+            if (!cfg) return;
+            enabled = cfg.on !== false;
+            if (typeof cfg.volume === "number") volume = Math.max(0, Math.min(0.3, cfg.volume));
+          },
+          start() {
+            if (!ctx || on || !enabled || volume === 0) return;
+            on = true;
+            gain = new GainNode(ctx, { gain: 0 });
+            // Two detuned sines an octave apart, low and soft: a hum with a body, not a tone.
+            const a = new OscillatorNode(ctx, { frequency: 110, type: "sine" });
+            const b = new OscillatorNode(ctx, { frequency: 220.6, type: "sine" });
+            const quiet = new GainNode(ctx, { gain: 0.35 });
+            // The breath. 0.22 Hz is one cycle every four and a half seconds — slower than a
+            // pulse, which is what keeps it from reading as urgency.
+            const lfo = new OscillatorNode(ctx, { frequency: 0.22, type: "sine" });
+            const depth = new GainNode(ctx, { gain: volume * 0.6 });
+            lfo.connect(depth).connect(gain.gain);
+            a.connect(gain);
+            b.connect(quiet).connect(gain);
+            gain.connect(ctx.destination);
+            // Fade in, always: a hum that starts at full level is a click.
+            gain.gain.setValueAtTime(0, ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.45);
+            for (const n of [a, b, lfo]) n.start();
+            nodes = [a, b, lfo];
+          },
+          stop() {
+            if (!on) return;
+            on = false;
+            const g = gain, ns = nodes;
+            gain = null;
+            nodes = [];
+            if (!g || !ctx) return;
+            // Fade out and only then stop, or the answer starts on top of a click.
+            const t = ctx.currentTime;
+            g.gain.cancelScheduledValues(t);
+            g.gain.setValueAtTime(g.gain.value, t);
+            g.gain.linearRampToValueAtTime(0, t + 0.25);
+            setTimeout(() => {
+              for (const n of ns) {
+                try {
+                  n.stop();
+                } catch {}
+              }
+              try {
+                g.disconnect();
+              } catch {}
+            }, 300);
+          },
+          get running() {
+            return on;
+          },
+        };
+      })();
+
       let shown = null;
       function render() {
         const s = turnState();
@@ -465,6 +548,8 @@
             // How long this will take to hear. Nothing else tells the page that Claude is
             // speaking, so the audio itself has to.
             const now = Date.now();
+            // The answer is here. Whatever we were waiting for has arrived.
+            thinking.stop();
             state.speakingUntil = Math.max(now, state.speakingUntil) + (pcm.length / RATE) * 1000;
             playNode?.port.postMessage({ pcm: f }, [f.buffer]);
             render();
@@ -478,6 +563,7 @@
           else if (msg.t === "mic") setMic(!!msg.on);
           else if (msg.t === "ask") {
             picked = false;
+            thinking.configure(msg.think);
             showAsk(msg);
           }
           // The button is armed by the call, not by the microphone: the mic only comes on
@@ -486,7 +572,10 @@
           else if (msg.t === "armed") {
             state.armed = !!msg.on;
             startBtn.disabled = !msg.on || picked;
-          } else if (msg.t === "report") showReport(msg);
+          } else if (msg.t === "report") {
+            thinking.stop(); // the call is over, whatever it was waiting for
+            showReport(msg);
+          }
           else if (msg.t === "feedbackSaved") {
             $("fbDone").textContent = msg.ok ? "Salvato. Grazie." : "Non salvato — vedi il log.";
             $("fbDone").hidden = false;
@@ -499,6 +588,8 @@
           render();
         };
         ws.onclose = () => {
+          // A dead socket is the one case where the sound would be a lie.
+          thinking.stop();
           state.connected = false;
           state.armed = false;
           state.speakingUntil = 0;
@@ -529,6 +620,10 @@
       }
 
       function setMic(on) {
+        // The microphone closing is the start of the wait: the utterance is complete and the
+        // two model calls are running. Nothing on the wire announces that — this IS the signal.
+        if (state.mic && !on) thinking.start();
+        if (on) thinking.stop();
         state.mic = on;
         capNode?.port.postMessage({ on });
         if (!on) document.documentElement.style.setProperty("--level", 0);
@@ -585,6 +680,7 @@
           const mute = new GainNode(ctx, { gain: 0 });
           ctx.createMediaStreamSource(stream).connect(capNode).connect(mute).connect(ctx.destination);
           playNode.connect(ctx.destination);
+          thinking.attach(ctx);
 
           goBtn.hidden = true;
           $("live").hidden = false;

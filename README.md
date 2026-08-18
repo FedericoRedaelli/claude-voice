@@ -156,6 +156,14 @@ made it necessary. "Nimm die zweite" is not in any source file here.
 full text out loud — you are listening, not reading it. It only hands the turn back to Claude
 when you decide something, ask for work, or ask something the text genuinely does not answer.
 
+**The wait has a sound.** Between the microphone closing and the answer being spoken there are
+two network calls — transcription, then the brain — and on a slow provider that is six seconds
+of nothing. Silence there is indistinguishable from a server that has died, and a spinner is no
+answer: you are listening, not watching. So the page hums, quietly, for exactly that gap. It is
+generated in the page rather than shipped as a file, and it breathes once every four and a half
+seconds because a repeating beep in a four-second gap is a fire alarm. `VOICE_THINK_SOUND=0`
+turns it off, `VOICE_THINK_VOLUME` moves it.
+
 **Nothing is billed for a call you don't take.** The button is the only trigger. Before you
 press it there is no microphone, no transcription and no completion — only a soft pulse every
 few seconds saying something is waiting. Ignore it for three minutes and the call closes with
@@ -234,6 +242,8 @@ overrides them. The ones worth knowing:
 | `VOICE_BROWSER_OPEN` | auto | `0` never opens a browser, `1` always tries |
 | `VOICE_BROWSER_CMD` | — | the exact command that opens a URL, when no guess fits |
 | `VOICE_FEEDBACK_FILE` | `~/.claude-voice/feedback.jsonl` | where the comment box writes |
+| `VOICE_THINK_SOUND` | `1` | the hum while transcription and the brain run; `0` for silence |
+| `VOICE_THINK_VOLUME` | `0.05` | how loud that hum is (0–0.3) |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
 | `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
@@ -284,7 +294,7 @@ diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server 
 ## Working on it
 
 ```bash
-npm test           # 137 tests, none of them touches the network
+npm test           # 139 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```

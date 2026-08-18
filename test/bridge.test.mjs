@@ -206,3 +206,26 @@ test("a socket with the wrong token never becomes a tab", async () => {
     assert.equal(bridge.connected(), false);
   });
 });
+
+// The page has no configuration of its own, so anything it needs to know rides on the question.
+test("the question carries whether the waiting sound plays, and how loud", async () => {
+  await withBridge(async ({ bridge, connect }) => {
+    const tab = await connect();
+    bridge.ask({ spoken: "Apro la PR?", options: ["Sì", "No"] });
+    const ask = await tab.next("ask");
+    assert.equal(ask.think.on, true);
+    assert.equal(typeof ask.think.volume, "number");
+    assert.ok(ask.think.volume > 0 && ask.think.volume < 0.3, "audible, and impossible to blast");
+  });
+});
+
+// A comment is the one message that outlives the call, so it is answered rather than assumed.
+test("a comment typed on the page is acknowledged", async () => {
+  await withBridge(async ({ bridge, connect }) => {
+    const tab = await connect();
+    bridge.report({ decision: { kind: "choice", value: "Sì" }, options: ["Sì", "No"] });
+    tab.send({ t: "feedback", text: "" });
+    const empty = await tab.next("feedbackSaved");
+    assert.equal(empty.ok, false, "an empty comment is not a record");
+  });
+});
