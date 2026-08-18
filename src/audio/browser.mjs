@@ -29,6 +29,7 @@ import {
   pageUrl,
 } from "../bridge-url.mjs";
 import { config } from "../config.mjs";
+import { pauseMedia } from "../media.mjs";
 import { appendFeedback, buildRecord } from "../feedback.mjs";
 import { durationMs, rmsPct } from "../pcm.mjs";
 
@@ -54,6 +55,11 @@ const log = (m) => process.stderr.write(`[claude-voice] audio/browser: ${m}\n`);
 // single talk_to_user call — reconnecting (and re-asking for microphone permission) on every
 // question would be worse than the problem this file solves.
 let bridge = null;
+
+// What to undo when the call ends. It is a function rather than a flag because only a pause
+// that actually happened can hand back a resume — see media.mjs. Reset to a no-op the moment
+// it is used, so a second close cannot start music nobody asked for.
+let resumeMedia = () => {};
 
 // A tab attached: remember when, for the next process to read.
 function noteTabSeen(file = SEEN_FILE) {
@@ -662,11 +668,21 @@ export function createAudio({ cfg = config } = {}) {
     // microphone, no model, nothing billed until the button is pressed.
     waitForButton(ms, { tickMs = cfg.waitTickMs, volume = cfg.waitTickVolume } = {}) {
       if (!bridge) return Promise.resolve(false);
-      if (!tickMs) return bridge.waitForStart(ms);
+      // The press, not the arming, is where other audio has to stop. A question can sit armed
+      // for three minutes while you are in another room: pausing your music for all of it,
+      // because Claude MIGHT be asked something, is not a trade anyone would accept.
+      const pressed = (ok) => {
+        if (ok) resumeMedia = pauseMedia();
+        return ok;
+      };
+      if (!tickMs) return bridge.waitForStart(ms).then(pressed);
 
       const timer = setInterval(() => bridge?.sfx("attention"), tickMs);
       if (timer.unref) timer.unref();
-      return bridge.waitForStart(ms).finally(() => clearInterval(timer));
+      return bridge
+        .waitForStart(ms)
+        .finally(() => clearInterval(timer))
+        .then(pressed);
     },
 
     // The models are running: transcription, then the brain. Nothing else can tell the page
@@ -734,7 +750,19 @@ export function createAudio({ cfg = config } = {}) {
       `machine has no display, forward the port from yours first: ` +
       `ssh -L ${browserPort()}:127.0.0.1:${browserPort()} <user>@<host>`,
 
-    report: (r) => bridge?.report(r),
-    close: () => shutdownBrowserAudio(),
+    report: (r) => {
+      // The call is over: whatever was playing before it gets its turn back.
+      resumeMedia();
+      resumeMedia = () => {};
+      bridge?.report(r);
+    },
+    // A call that ends without a receipt — an abort, a timeout, Claude Code quitting — must
+    // put the music back too. This is the path a crash takes, and silence-forever is exactly
+    // the failure that would make the whole feature not worth having.
+    close: () => {
+      resumeMedia();
+      resumeMedia = () => {};
+      return shutdownBrowserAudio();
+    },
   };
 }

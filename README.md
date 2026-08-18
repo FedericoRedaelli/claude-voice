@@ -178,6 +178,23 @@ Anything that fails to load falls back to a synthesised tone rather than to sile
 `VOICE_SFX=0` uses the tones on purpose; `VOICE_SFX_VOLUME` and `VOICE_THINK_VOLUME` set the
 levels, and `VOICE_THINK_SOUND=0` turns the working loop off.
 
+**It can stop your music, if it is on the same machine.** A browser tab cannot pause Spotify —
+no desktop browser gives a page that power — so this runs in Node, and Node is wherever Claude
+Code is. On a laptop where you run both, `VOICE_PAUSE_MEDIA=1` pauses what is playing when you
+press **Parla** and puts it back when the call closes, including when the call dies rather than
+ends. Over Remote-SSH it would pause the music on a server nobody is listening to, so it is
+opt-in rather than clever. WSL is the good case: `powershell.exe` reaches the Windows host,
+which is where the speakers are.
+
+The press, not the arming, is the trigger: a question can sit armed for three minutes while you
+are in another room, and pausing your music for all of it because Claude *might* be asked
+something is not a trade anyone would accept. macOS and Linux ask before they touch anything —
+what was playing is what gets resumed, and a player you had deliberately stopped stays stopped.
+Windows has no way to ask, so there it is the media key and therefore a blind toggle. macOS
+will ask you once for permission to control Spotify or Music; refuse it and the feature simply
+does nothing. `VOICE_PAUSE_CMD` / `VOICE_RESUME_CMD` take over completely if your player is
+something else.
+
 **Nothing is billed for a call you don't take.** The button is the only trigger. Before you
 press it there is no microphone, no transcription and no completion — only a soft pulse every
 few seconds saying something is waiting. Ignore it for three minutes and the call closes with
@@ -260,6 +277,8 @@ overrides them. The ones worth knowing:
 | `VOICE_THINK_VOLUME` | `0.05` | how loud that loop is (0–0.3) |
 | `VOICE_SFX` | `1` | the recorded cues; `0` falls back to synthesised tones |
 | `VOICE_SFX_VOLUME` | `0.6` | how loud the opening, waiting and closing cues are (0–1) |
+| `VOICE_PAUSE_MEDIA` | `0` | `1` pauses other audio for the length of a call, on the machine Claude Code runs on |
+| `VOICE_PAUSE_CMD` / `VOICE_RESUME_CMD` | — | your own commands, instead of the per-platform guess |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
 | `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
@@ -310,7 +329,7 @@ diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server 
 ## Working on it
 
 ```bash
-npm test           # 143 tests, none of them touches the network
+npm test           # 152 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```
