@@ -3,7 +3,7 @@
 // yet — browser.mjs imports `ws`, this file imports nothing but node: builtins.
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,3 +69,76 @@ export function hasDisplay() {
   if (process.platform === "darwin" || process.platform === "win32") return true;
   return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 }
+
+// ---------------------------------------------------------------- who opens the tab
+//
+// "No display" is not the same as "no browser". The common setup for this plugin is a remote
+// machine — SSH, WSL, a container — driven from a laptop that has both the browser and the
+// ears. There is a browser; it is simply on the other end of the connection, and there are two
+// ways to reach it without asking the user to open anything by hand:
+//
+//   VS Code remote  `code --openExternal <url>` hands the URL to the VS Code running on the
+//                   laptop, which opens the local browser AND forwards the port for it. That
+//                   is the whole `ssh -L` dance, done by the editor.
+//   WSL             `wslview`, or explorer.exe, opens the Windows browser; localhost is
+//                   already shared with the Windows side.
+//
+// So we resolve an OPENER rather than ask whether there is a screen. Injected `env`, `platform`
+// and `has` (is this command on PATH) so the decision is testable without a laptop attached.
+export function resolveOpener({ env = process.env, platform = process.platform, has = () => false } = {}) {
+  if (env.VOICE_BROWSER_OPEN === "0") return null;
+
+  // An explicit command wins over everything: the escape hatch for a setup nobody predicted.
+  if (env.VOICE_BROWSER_CMD) {
+    const [cmd, ...args] = env.VOICE_BROWSER_CMD.split(/\s+/).filter(Boolean);
+    if (cmd) return { cmd, args, where: "VOICE_BROWSER_CMD" };
+  }
+
+  // A screen right here.
+  if (platform === "darwin") return { cmd: "open", args: [], where: "this desktop" };
+  if (platform === "win32") return { cmd: "cmd.exe", args: ["/c", "start", ""], where: "this desktop" };
+  if (env.DISPLAY || env.WAYLAND_DISPLAY) return { cmd: "xdg-open", args: [], where: "this desktop" };
+
+  // No screen here — but the editor on the other end has one, and forwards the port itself.
+  if (env.VSCODE_IPC_HOOK_CLI && has("code")) {
+    return { cmd: "code", args: ["--openExternal"], where: "the VS Code on your own machine" };
+  }
+  if (env.VSCODE_IPC_HOOK_CLI && has("code-insiders")) {
+    return { cmd: "code-insiders", args: ["--openExternal"], where: "the VS Code on your own machine" };
+  }
+
+  // WSL: the Windows side shares this loopback, so its browser needs no tunnel at all.
+  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) {
+    if (has("wslview")) return { cmd: "wslview", args: [], where: "the Windows browser" };
+    if (has("explorer.exe")) return { cmd: "explorer.exe", args: [], where: "the Windows browser" };
+  }
+
+  // The convention every Unix tool honours before falling back to xdg-open.
+  if (env.BROWSER) {
+    const [cmd, ...args] = env.BROWSER.split(/\s+/).filter(Boolean);
+    if (cmd) return { cmd, args, where: "$BROWSER" };
+  }
+
+  if (env.VOICE_BROWSER_OPEN === "1") return { cmd: "xdg-open", args: [], where: "forced" };
+  return null; // print the URL and let the human open it — the honest answer
+}
+
+// Is this command on PATH? Cheaper and quieter than spawning `which` for something we ask
+// about on every call, and it must never throw: an unreadable PATH entry is just a "no".
+export function onPath(cmd, env = process.env) {
+  if (cmd.includes("/")) return existsSync(cmd);
+  for (const dir of (env.PATH || "").split(":")) {
+    if (!dir) continue;
+    try {
+      accessSync(join(dir, cmd), constants.X_OK);
+      return true;
+    } catch {
+      /* next */
+    }
+  }
+  return false;
+}
+
+// The opener this machine actually has, PATH included.
+export const opener = (env = process.env, platform = process.platform) =>
+  resolveOpener({ env, platform, has: (c) => onPath(c, env) });

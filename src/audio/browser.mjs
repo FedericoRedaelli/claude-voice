@@ -25,6 +25,7 @@ import {
   browserPort,
   hasDisplay,
   loadOrCreateToken,
+  opener,
   pageUrl,
 } from "../bridge-url.mjs";
 import { config } from "../config.mjs";
@@ -382,11 +383,26 @@ export function createBridge({
   };
 }
 
-function openInBrowser(url) {
-  const cmd =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+// The browser is not always on this machine. `open`/`xdg-open` is only one of the answers;
+// over VS Code remote the opener hands the URL to the editor on the user's own laptop, which
+// opens it there and forwards the port for it. resolveOpener picks; this only runs the choice.
+function openInBrowser(url, how = opener()) {
+  if (!how) {
+    log(`no way to open a browser from here — open this yourself: ${url}`);
+    return;
+  }
   try {
-    spawn(cmd, [url], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+    const child = spawn(how.cmd, [...how.args, url], {
+      stdio: "ignore",
+      detached: true,
+      shell: process.platform === "win32",
+    });
+    // A missing command surfaces as an async error, not a throw: without this the user is told
+    // a tab is opening and then waits out the whole timeout for a tab nobody ever asked for.
+    child.on("error", (err) =>
+      log(`${how.cmd} failed (${String(err?.message ?? err)}) — open this yourself: ${url}`),
+    );
+    child.unref();
   } catch (err) {
     log(`could not open a browser (${String(err?.message ?? err)}) — open this yourself: ${url}`);
   }
@@ -400,7 +416,7 @@ export async function ensureBrowserAudio({
   // How long a tab seen once is assumed to still be there. Opening a second tab is worse than
   // waiting: the new one asks for the microphone again, while the call is already waiting.
   tabMemoryMs = Number(process.env.VOICE_BROWSER_TAB_MEMORY_MS) || 600000,
-  autoOpen = hasDisplay(),
+  autoOpen = opener(),
 } = {}) {
   if (!bridge) {
     const b = createBridge();
@@ -430,8 +446,8 @@ export async function ensureBrowserAudio({
   }
 
   if (autoOpen) {
-    log(`opening ${bridge.url()} — leave that tab open, and allow the microphone once`);
-    openInBrowser(bridge.url());
+    log(`opening ${bridge.url()} in ${autoOpen.where} — leave that tab open, and allow the microphone once`);
+    openInBrowser(bridge.url(), autoOpen);
   } else {
     log(`waiting for a tab at ${bridge.url()}`);
   }

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { missingDeps, pluginRoot } from "../src/bootstrap.mjs";
 import { envFiles, parseEnvFile, pluginEnvFile, userEnvDir, userEnvFile } from "../src/env.mjs";
+import { opener } from "../src/bridge-url.mjs";
 
 const EXAMPLE = join(pluginRoot, ".env.example");
 
@@ -109,6 +110,10 @@ async function status() {
     keyPresent: Boolean(key),
     key: key ? await checkKey(key) : { ok: false, reason: "no key" },
     display: Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY) || process.platform === "darwin" || process.platform === "win32",
+    // Where a tab would be opened from here. "display" only answers whether there is a screen
+    // on THIS machine; over VS Code remote the browser is on the user's laptop and the editor
+    // opens it for us, which is a different question and the one that decides the experience.
+    opensBrowser: opener() ? { command: opener().cmd, where: opener().where } : null,
     browserPort: Number(process.env.VOICE_BROWSER_PORT) || 8787,
   };
 }

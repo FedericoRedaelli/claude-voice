@@ -71,21 +71,36 @@ writes it to `~/.claude-voice/.env` instead, and every version reads it from the
 that already has its own `.env` (a clone you work on) keeps using that one — plugin `.env`
 first, `~/.claude-voice/.env` second, shell exports ahead of both.
 
-### Headless machines and SSH
+### Remote machines: SSH, VS Code, WSL
 
 The browser tab is the sound card — microphone, speaker and echo cancellation all live in it —
-so it has to run where your ears are. That does not have to be where Claude Code runs.
+so it has to run where your ears are. That does not have to be where Claude Code runs, and
+"this machine has no display" does not mean there is no browser: it usually means the browser is
+on the laptop you are typing on.
 
-The bridge listens on loopback, which is exactly what an SSH tunnel needs. From your own
-machine:
+So the plugin looks for a way to reach *that* browser before giving up:
+
+| Where you are | What opens the tab |
+| --- | --- |
+| A desktop | `open` / `xdg-open` / `start`, as always |
+| **VS Code remote** (Remote-SSH, WSL, dev container) | `code --openExternal` — the editor on **your own machine** opens the tab and forwards the port for it. Nothing to set up |
+| WSL without VS Code | `wslview`, or `explorer.exe` — the Windows browser already shares this loopback |
+| Anything else | `$BROWSER`, or `VOICE_BROWSER_CMD` if you want to name the command yourself |
+| None of the above | the URL is printed and you open it yourself |
+
+Plain SSH with no editor in the middle is the last row, and the bridge listens on loopback
+precisely so a tunnel is all it takes:
 
 ```bash
 ssh -L 8787:127.0.0.1:8787 <user>@<host>
 ```
 
-then open the URL that `/voice-doctor` prints (or `npm run url` in the plugin directory) in
-your local browser. On a machine with no display nothing tries to open a browser for you: the
-URL comes back to Claude in the terminal instead, where you can actually see it.
+then open the URL that `/voice-doctor` prints (or `npm run url` in the plugin directory) in your
+local browser.
+
+`/voice-doctor` reports which of these applies as `opensBrowser`. If you are in VS Code and it
+still says nothing can open a browser, the `code` CLI is not on `PATH` in that shell — VS Code's
+own integrated terminal has it.
 
 ### Teaching Claude the two payloads
 
@@ -201,6 +216,7 @@ overrides them. The ones worth knowing:
 | `VOICE_BARGE_IN` | `0` | let your voice cut the reply short — see below |
 | `VOICE_BROWSER_PORT` | `8787` | the bridge's loopback port |
 | `VOICE_BROWSER_OPEN` | auto | `0` never opens a browser, `1` always tries |
+| `VOICE_BROWSER_CMD` | — | the exact command that opens a URL, when no guess fits |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
 | `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
@@ -242,7 +258,7 @@ nudge. Run `/voice-doctor`.
 ## Working on it
 
 ```bash
-npm test           # 114 tests, none of them touches the network
+npm test           # 122 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```
