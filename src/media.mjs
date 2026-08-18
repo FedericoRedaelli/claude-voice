@@ -66,6 +66,18 @@ export function pausedApps(stdout) {
 const run = (cmd, args, run_ = spawnSync) =>
   run_(cmd, args, { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "pipe"] });
 
+// Where the pause should happen, given what is attached. The agent wins whenever there is
+// one: it runs on the machine with the browser, which is the machine with the speakers, and
+// that is the whole question. Local is the fallback for the ordinary case where Claude Code
+// and the browser are the same computer.
+export function pauseVia({ agents = 0, how = resolveMedia(), exec = run, media = () => {} } = {}) {
+  if (agents > 0) {
+    media("pause");
+    return () => media("resume");
+  }
+  return pauseMedia({ how, exec });
+}
+
 // Pause, and return the resume function. Returning it — rather than storing state in the
 // module — is what guarantees that a resume can only undo a pause that actually happened.
 export function pauseMedia({ how = resolveMedia(), exec = run } = {}) {

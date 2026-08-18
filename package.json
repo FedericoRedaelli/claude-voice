@@ -1,6 +1,6 @@
 {
   "name": "claude-voice",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "A voice loop for Claude Code — Claude's stopping-point answer is spoken aloud and you reply by voice.",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,8 @@
     "smoke:voice": "node scripts/smoke-voice.mjs",
     "try": "node scripts/try-call.mjs",
     "feedback": "node scripts/feedback.mjs",
-    "sounds": "node scripts/make-attention.mjs"
+    "sounds": "node scripts/make-attention.mjs",
+    "media-agent": "node scripts/media-agent.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

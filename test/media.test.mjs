@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pauseMedia, pausedApps, resolveMedia } from "../src/media.mjs";
+import { pauseMedia, pauseVia, pausedApps, resolveMedia } from "../src/media.mjs";
 
 const on = { VOICE_PAUSE_MEDIA: "1" };
 
@@ -88,4 +88,27 @@ test("the mac script's output is read as a list of what it paused", () => {
   assert.deepEqual(pausedApps("Spotify\nMusic\n"), ["Spotify", "Music"]);
   assert.deepEqual(pausedApps(""), []);
   assert.deepEqual(pausedApps(undefined), []);
+});
+
+// The agent runs on the machine with the browser, which is the machine with the speakers. When
+// one is attached it wins outright: the local machine may be a server nobody is listening to.
+test("an attached agent takes the pause, and the local machine is left alone", () => {
+  const said = [];
+  let ranLocally = false;
+  const resume = pauseVia({
+    agents: 1,
+    media: (a) => said.push(a),
+    how: { kind: "mac" },
+    exec: () => (ranLocally = true),
+  });
+  assert.deepEqual(said, ["pause"]);
+  assert.equal(ranLocally, false, "nothing was paused on this machine");
+  resume();
+  assert.deepEqual(said, ["pause", "resume"]);
+});
+
+test("with no agent it falls back to this machine", () => {
+  const calls = [];
+  pauseVia({ agents: 0, how: { kind: "playerctl" }, exec: (cmd, args) => (calls.push(args.join(" ")), { stdout: "Playing" }) });
+  assert.deepEqual(calls, ["status", "pause"]);
 });

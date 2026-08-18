@@ -9,5 +9,8 @@ const port = browserPort();
 process.stdout.write(`${pageUrl()}\n`);
 process.stdout.write(
   `\nNo display on this machine? Forward the port from yours, then open the URL there:\n` +
-    `  ssh -L ${port}:127.0.0.1:${port} <user>@<host>\n`,
+    `  ssh -L ${port}:127.0.0.1:${port} <user>@<host>\n` +
+    `\nTo have your OWN music pause during a call, run this on that same machine — the port is\n` +
+    `already forwarded, so it needs nothing else:\n` +
+    `  node <plugin>/scripts/media-agent.mjs "${pageUrl()}"\n`,
 );

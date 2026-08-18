@@ -29,7 +29,7 @@ import {
   pageUrl,
 } from "../bridge-url.mjs";
 import { config } from "../config.mjs";
-import { pauseMedia } from "../media.mjs";
+import { pauseVia } from "../media.mjs";
 import { appendFeedback, buildRecord } from "../feedback.mjs";
 import { durationMs, rmsPct } from "../pcm.mjs";
 
@@ -133,6 +133,10 @@ export function createBridge({
   // waiting for three minutes for an answer the user has no way to give.
   let pendingAsk = null;
   let lastReport = null;
+  // Agents that can pause music on the machine they run on. A set, not one: a laptop and a
+  // desktop can both be listening through the same forwarded port at different times, and a
+  // dead one only stops being in here when its socket closes.
+  const mediaSockets = new Set();
   let armed = false;
   let socket = null;
   let waiters = [];
@@ -193,7 +197,30 @@ export function createBridge({
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, sock, head) => {
     const url = new URL(req.url, "http://127.0.0.1");
-    if (url.pathname !== "/ws" || url.searchParams.get("t") !== token) {
+    if (url.searchParams.get("t") !== token) {
+      sock.destroy();
+      return;
+    }
+    // The media agent: a second kind of client, on the machine where the browser is.
+    //
+    // It exists because pausing music has to happen where the speakers are, and over SSH that
+    // is not this machine. The bridge port is already forwarded to that machine — it is how
+    // the page reaches us at all — so the agent connects back over the same tunnel and runs
+    // the pause locally. It is told "pause" and "resume" and nothing else: the commands live
+    // in the agent, not in what the server can ask for.
+    if (url.pathname === "/media") {
+      wss.handleUpgrade(req, sock, head, (ws) => {
+        mediaSockets.add(ws);
+        log(`media agent attached (${mediaSockets.size})`);
+        ws.on("close", () => {
+          mediaSockets.delete(ws);
+          log("media agent gone");
+        });
+        ws.on("error", () => mediaSockets.delete(ws));
+      });
+      return;
+    }
+    if (url.pathname !== "/ws") {
       sock.destroy();
       return;
     }
@@ -412,6 +439,19 @@ export function createBridge({
       lastReport = r;
       send({ t: "report", ...r });
     },
+    // How many machines could pause their music right now. Zero is the normal case, and the
+    // reason the local fallback exists.
+    mediaAgents: () => mediaSockets.size,
+    media: (action) => {
+      for (const ws of mediaSockets) {
+        try {
+          ws.send(JSON.stringify({ t: "media", action }));
+        } catch {
+          mediaSockets.delete(ws);
+        }
+      }
+    },
+
     // A cue, by name. The page owns the sound; this owns WHEN — which is the half that has to
     // agree with the state of the call, and the half that is testable without a speaker.
     sfx: (name, on) => send({ t: "sfx", name, ...(on === undefined ? {} : { on })  }),
@@ -672,7 +712,12 @@ export function createAudio({ cfg = config } = {}) {
       // for three minutes while you are in another room: pausing your music for all of it,
       // because Claude MIGHT be asked something, is not a trade anyone would accept.
       const pressed = (ok) => {
-        if (ok) resumeMedia = pauseMedia();
+        if (ok) {
+          resumeMedia = pauseVia({
+            agents: bridge?.mediaAgents() ?? 0,
+            media: (action) => bridge?.media(action),
+          });
+        }
         return ok;
       };
       if (!tickMs) return bridge.waitForStart(ms).then(pressed);

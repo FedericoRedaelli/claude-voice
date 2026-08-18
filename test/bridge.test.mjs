@@ -239,6 +239,33 @@ test("a cue travels as a name and the loop as a switch", async () => {
   });
 });
 
+// The media agent: a second kind of client, on the machine where the browser is. It is how a
+// laptop driving a remote box gets its own music paused instead of the server's.
+test("a media agent attaches on its own path and is told to pause and resume", async () => {
+  await withBridge(async ({ bridge, connect }) => {
+    const agent = new WebSocket(`ws://127.0.0.1:${bridge.port()}/media?t=${TOKEN}`);
+    const heard = [];
+    agent.on("message", (d) => heard.push(JSON.parse(String(d))));
+    await new Promise((r) => agent.once("open", r));
+    while (bridge.mediaAgents() === 0) await new Promise((r) => setTimeout(r, 10));
+
+    bridge.media("pause");
+    bridge.media("resume");
+    while (heard.length < 2) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(heard.map((m) => m.action), ["pause", "resume"]);
+    assert.equal(heard[0].t, "media");
+    agent.terminate();
+  });
+});
+
+test("a media agent without the token never attaches", async () => {
+  await withBridge(async ({ bridge }) => {
+    const agent = new WebSocket(`ws://127.0.0.1:${bridge.port()}/media?t=wrong`);
+    await new Promise((r) => agent.once("error", r).once("close", r));
+    assert.equal(bridge.mediaAgents(), 0);
+  });
+});
+
 // Path traversal, on the one server in this project that serves files from disk.
 test("the sounds are served, and only the sounds", async () => {
   await withBridge(async ({ bridge }) => {

@@ -193,14 +193,27 @@ what was playing is what gets resumed, and a player you had deliberately stopped
 Windows has no way to ask, so there it is the media key and therefore a blind toggle. macOS
 will ask you once for permission to control Spotify or Music; refuse it and the feature simply
 does nothing. `VOICE_PAUSE_CMD` / `VOICE_RESUME_CMD` take over completely if your player is
-something else — and they are also the way out of the Remote-SSH case, if your own machine
-accepts SSH: `VOICE_PAUSE_CMD="ssh my-laptop 'playerctl pause'"` runs the pause where the
-speakers are. `/voice-doctor` reports which machine it would reach as `pausesMedia`.
+something else. `/voice-doctor` reports which machine the pause would reach, as `pausesMedia`.
 
-Why not do it from the page, which IS on the machine with the speakers? Because a browser tab
-cannot pause another application, or another tab: no desktop browser exposes that, and the
-Media Session API only describes our own playback to the OS (the audio focus that pauses other
+Why not from the page, which IS on the machine with the speakers? Because a browser tab cannot
+pause another application, or another tab: no desktop browser exposes that, and the Media
+Session API only describes our own playback to the OS (the audio focus that pauses other
 players is an Android behaviour). It is the sandbox, not a design choice.
+
+**When the browser is on your machine and Claude Code is not** — a Mac driving a remote box or
+a WSL over SSH — run the media agent on your own machine and it pauses your music instead:
+
+```bash
+node <plugin>/scripts/media-agent.mjs "http://127.0.0.1:8787/?t=<token>"
+```
+
+It needs no new plumbing: the bridge port is already forwarded to you, because that is how the
+page reaches the server at all, so the agent dials the same address the tab does. Leave it
+running; it reconnects by itself, and it puts your music back if you kill it mid-call. An
+attached agent wins over the local machine outright — the local one may be a server nobody is
+listening to. The whole vocabulary it accepts is `pause` and `resume`: the commands live in the
+agent, in a file you can read, because a remote that can name a shell command is a remote that
+can run one. `npm run url` prints the exact line with your token in it.
 
 **Nothing is billed for a call you don't take.** The button is the only trigger. Before you
 press it there is no microphone, no transcription and no completion — only a soft pulse every
@@ -285,6 +298,7 @@ overrides them. The ones worth knowing:
 | `VOICE_SFX` | `1` | the recorded cues; `0` falls back to synthesised tones |
 | `VOICE_SFX_VOLUME` | `0.6` | how loud the opening, waiting and closing cues are (0–1) |
 | `VOICE_PAUSE_MEDIA` | `0` | `1` pauses other audio for the length of a call, on the machine Claude Code runs on |
+| — | — | (the media agent pauses on YOUR machine instead, and needs no setting) |
 | `VOICE_PAUSE_CMD` / `VOICE_RESUME_CMD` | — | your own commands, instead of the per-platform guess |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
@@ -336,7 +350,7 @@ diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server 
 ## Working on it
 
 ```bash
-npm test           # 152 tests, none of them touches the network
+npm test           # 156 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```

@@ -47,4 +47,9 @@ WHICH machine: this runs where Claude Code runs.
   would pause the music on this one, which nobody is listening to. Say so instead of
   recommending it.
 
+When the tab opens on a different machine from this one and the user wants their own music
+paused during a call, that is what `pausesMedia.agentCommand` is for: they run it on the machine
+with the browser, with the tab URL, and leave it running. The bridge port is already forwarded
+there, so nothing else has to be set up. Mention it only if the question comes up.
+
 Do not print the key, and do not offer to change any setting unless the user asks.

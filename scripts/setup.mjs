@@ -125,6 +125,10 @@ async function status() {
     // that is the user's own machine in some setups and a server in others.
     pausesMedia: {
       enabled: process.env.VOICE_PAUSE_MEDIA === "1",
+      // The way out of the split-machine case: an agent run where the browser is. It attaches
+      // over the port that is already forwarded, and then it — not this machine — is what
+      // pauses. Reported as a command because the answer to "how do I get this" is the command.
+      agentCommand: `node "${pluginRoot}/scripts/media-agent.mjs" "<the tab URL>"`,
       would: resolveMedia({
         env: { ...process.env, VOICE_PAUSE_MEDIA: "1" },
         has: (c) => onPath(c),
