@@ -23,8 +23,10 @@ stop at the first one that cannot be satisfied.
    printf %s 'THE_KEY' | node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" --key -
    ```
 
-   The script validates the key against OpenRouter before writing anything, and writes it to
-   `${CLAUDE_PLUGIN_ROOT}/.env` with mode 600. If it reports the key is rejected, say exactly
+   The script validates the key against OpenRouter before writing anything, and writes it
+   with mode 600 to `~/.claude-voice/.env` — outside the plugin, so a plugin update (which
+   installs into a new versioned directory) does not take the key with it. A checkout that
+   already has its own `.env` keeps using that one instead. If it reports the key is rejected, say exactly
    what it said and ask for another one. Never echo the key back in your reply.
 
 5. Ask which language the voice should speak, and set it if it is not English:

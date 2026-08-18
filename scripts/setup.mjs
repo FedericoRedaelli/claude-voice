@@ -9,13 +9,20 @@
 // it is used to call OpenRouter from this process only. It is deliberately never passed on the
 // command line by default — argv is visible to every process on the box.
 
-import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { missingDeps, pluginRoot } from "../src/bootstrap.mjs";
+import { envFiles, parseEnvFile, pluginEnvFile, userEnvDir, userEnvFile } from "../src/env.mjs";
 
-const ENV_FILE = join(pluginRoot, ".env");
 const EXAMPLE = join(pluginRoot, ".env.example");
+
+// Where a new key goes. An existing file wins so a checkout you already configured keeps
+// working; otherwise the user-level file, because a plugin install directory is named after
+// the version and is therefore thrown away by the next update — key and all.
+export function envTarget(exists = existsSync) {
+  return exists(pluginEnvFile) ? pluginEnvFile : userEnvFile;
+}
 const BASE = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 
 const args = process.argv.slice(2);
@@ -27,14 +34,12 @@ const valueOf = (f) => {
 
 // ---------------------------------------------------------------- .env handling
 
+// Every file the running plugin would read, in the same precedence order it reads them.
 function readEnvFile() {
   const out = new Map();
-  if (!existsSync(ENV_FILE)) return out;
-  for (const line of readFileSync(ENV_FILE, "utf8").split("\n")) {
-    const s = line.trim();
-    if (!s || s.startsWith("#")) continue;
-    const eq = s.indexOf("=");
-    if (eq > 0) out.set(s.slice(0, eq).trim(), s.slice(eq + 1).trim());
+  for (const path of envFiles()) {
+    if (!existsSync(path)) continue;
+    for (const [k, v] of parseEnvFile(readFileSync(path, "utf8"))) if (!out.has(k)) out.set(k, v);
   }
   return out;
 }
@@ -57,15 +62,18 @@ export function mergeEnv(existing, updates) {
 }
 
 function saveEnv(updates) {
-  const seed = existsSync(ENV_FILE)
-    ? readFileSync(ENV_FILE, "utf8")
+  const file = envTarget();
+  if (file === userEnvFile) mkdirSync(userEnvDir, { recursive: true, mode: 0o700 });
+  const seed = existsSync(file)
+    ? readFileSync(file, "utf8")
     : existsSync(EXAMPLE)
       ? readFileSync(EXAMPLE, "utf8")
       : "";
-  writeFileSync(ENV_FILE, mergeEnv(seed, updates), { mode: 0o600 });
+  writeFileSync(file, mergeEnv(seed, updates), { mode: 0o600 });
   try {
-    chmodSync(ENV_FILE, 0o600); // it holds a credential; nobody else on the box needs it
+    chmodSync(file, 0o600); // it holds a credential; nobody else on the box needs it
   } catch {}
+  return file;
 }
 
 // ---------------------------------------------------------------- checks
@@ -95,8 +103,9 @@ async function status() {
     nodeOk: major >= 20,
     dependenciesInstalled: missingDeps().length === 0,
     missingDependencies: missingDeps(),
-    envFile: ENV_FILE,
-    envFileExists: existsSync(ENV_FILE),
+    envFile: envTarget(),
+    envFiles: envFiles().filter((p) => existsSync(p)),
+    envFileExists: envFiles().some((p) => existsSync(p)),
     keyPresent: Boolean(key),
     key: key ? await checkKey(key) : { ok: false, reason: "no key" },
     display: Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY) || process.platform === "darwin" || process.platform === "win32",
@@ -147,10 +156,10 @@ async function main() {
   const updates = { OPENROUTER_API_KEY: key };
   const lang = valueOf("--lang");
   if (lang) updates.VOICE_LANG = lang;
-  saveEnv(updates);
+  const file = saveEnv(updates);
 
   process.stdout.write(
-    `Key accepted${check.label ? ` (${check.label})` : ""} and saved to ${ENV_FILE}.\n` +
+    `Key accepted${check.label ? ` (${check.label})` : ""} and saved to ${file}.\n` +
       "Restart Claude Code so the voice server picks it up.\n",
   );
 }

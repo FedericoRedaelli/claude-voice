@@ -30,8 +30,9 @@ In Claude Code:
 ```
 
 `/voice-setup` checks the install, installs the three dependencies on first run, asks for your
-OpenRouter key, validates it against OpenRouter before saving it, and writes it to the plugin's
-own `.env` with mode `600`. Restart Claude Code and the loop is live.
+OpenRouter key, validates it against OpenRouter before saving it, and writes it to
+`~/.claude-voice/.env` with mode `600` — outside the plugin, so plugin updates never take it
+with them. Restart Claude Code and the loop is live.
 
 `/voice-doctor` tells you what is wrong if it isn't.
 
@@ -44,6 +45,25 @@ Paste this into any Claude Code session and let it do the install:
 > `/plugin marketplace add FedericoRedaelli/claude-voice`, then
 > `/plugin install claude-voice@claude-voice`, then `/voice-setup`, and walk me through
 > whatever it asks for. My machine is `<desktop | headless, I connect over SSH>`.
+
+### Staying up to date
+
+The plugin is installed from this repository, so an update is a `git pull` on the other end:
+
+```
+/voice-update
+```
+
+which runs `claude plugin marketplace update claude-voice` and
+`claude plugin update claude-voice@claude-voice`, then tells you to restart Claude Code — the
+MCP server is long-lived, so new code is not running until it starts again. Dependencies for
+the new version install themselves on that first start.
+
+Your key is not in the plugin directory. Claude Code installs each version into its own
+directory, so a key stored next to the code would be thrown away by every update; `/voice-setup`
+writes it to `~/.claude-voice/.env` instead, and every version reads it from there. A checkout
+that already has its own `.env` (a clone you work on) keeps using that one — plugin `.env`
+first, `~/.claude-voice/.env` second, shell exports ahead of both.
 
 ### Headless machines and SSH
 
@@ -214,7 +234,7 @@ nudge. Run `/voice-doctor`.
 ## Working on it
 
 ```bash
-npm test           # 79 tests, none of them touches the network
+npm test           # 106 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```

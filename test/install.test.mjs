@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { ensureDeps, missingDeps, pluginRoot } from "../src/bootstrap.mjs";
 import { browserPort, hasDisplay, loadOrCreateToken, pageUrl } from "../src/bridge-url.mjs";
-import { mergeEnv } from "../scripts/setup.mjs";
+import { envTarget, mergeEnv } from "../scripts/setup.mjs";
+import { applyEnvFiles, parseEnvFile, pluginEnvFile, userEnvFile } from "../src/env.mjs";
 
 test("a directory with no node_modules is reported as missing every dependency", () => {
   const empty = mkdtempSync(join(tmpdir(), "cv-"));
@@ -58,4 +59,47 @@ test("a headless machine is not asked to open a browser", () => {
     for (const k of Object.keys(process.env)) delete process.env[k];
     Object.assign(process.env, saved);
   }
+});
+
+// ---- settings that survive an update ---------------------------------------------------
+//
+// Claude Code installs a plugin into a directory named after its version, so every update
+// lands in a new directory. A key written next to the code dies with it.
+
+test("the user-level file fills in what the plugin directory does not have", () => {
+  const files = { [pluginEnvFile]: "VOICE_LANG=Italiano\n", [userEnvFile]: "OPENROUTER_API_KEY=k\n" };
+  const env = {};
+  applyEnvFiles({ files: [pluginEnvFile, userEnvFile], env, read: (p) => files[p] });
+  assert.equal(env.OPENROUTER_API_KEY, "k", "the key survives outside the plugin directory");
+  assert.equal(env.VOICE_LANG, "Italiano");
+});
+
+test("the plugin directory wins over the user-level file, and the shell wins over both", () => {
+  const files = { [pluginEnvFile]: "VOICE_LANG=Italiano\n", [userEnvFile]: "VOICE_LANG=English\nVOICE_MODE=text\n" };
+  const env = { VOICE_MODE: "voice" };
+  applyEnvFiles({ files: [pluginEnvFile, userEnvFile], env, read: (p) => files[p] });
+  assert.equal(env.VOICE_LANG, "Italiano");
+  assert.equal(env.VOICE_MODE, "voice", "an export is never overwritten by a file");
+});
+
+test("a missing file is not an error — the next one still loads", () => {
+  const env = {};
+  applyEnvFiles({
+    files: [pluginEnvFile, userEnvFile],
+    env,
+    read: (p) => {
+      if (p === pluginEnvFile) throw new Error("ENOENT");
+      return "OPENROUTER_API_KEY=k\n";
+    },
+  });
+  assert.equal(env.OPENROUTER_API_KEY, "k");
+});
+
+test("quotes and comments are stripped the way a .env is normally read", () => {
+  assert.deepEqual(parseEnvFile('# note\nA="x"\nB=\'y\'\nbroken\n'), [["A", "x"], ["B", "y"]]);
+});
+
+test("a key goes to the plugin directory only when a .env is already there", () => {
+  assert.equal(envTarget(() => true), pluginEnvFile, "a configured checkout keeps its file");
+  assert.equal(envTarget(() => false), userEnvFile, "a fresh install writes where updates cannot reach");
 });
