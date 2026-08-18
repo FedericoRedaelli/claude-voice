@@ -59,6 +59,12 @@ which runs `claude plugin marketplace update claude-voice` and
 MCP server is long-lived, so new code is not running until it starts again. Dependencies for
 the new version install themselves on that first start.
 
+You do not have to remember to run it. A `SessionStart` hook looks for a new version every six
+hours and, when it finds one, updates in the background and tells you at the next start that a
+restart will pick it up. The check itself is a **detached** process: a session start never waits
+on the network, which is why the news arrives one session late rather than as a hang. Turn it
+off with `VOICE_AUTO_UPDATE=0`, or change the interval with `VOICE_AUTO_UPDATE_MS`.
+
 Your key is not in the plugin directory. Claude Code installs each version into its own
 directory, so a key stored next to the code would be thrown away by every update; `/voice-setup`
 writes it to `~/.claude-voice/.env` instead, and every version reads it from there. A checkout
@@ -197,6 +203,8 @@ overrides them. The ones worth knowing:
 | `VOICE_BROWSER_OPEN` | auto | `0` never opens a browser, `1` always tries |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
+| `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
+| `VOICE_AUTO_UPDATE_MS` | `21600000` | how often it looks for a new version (6 h) |
 
 **Provider choice is measured, not guessed.** Left to itself OpenRouter spreads `gpt-oss-20b`
 across providers that differ by more than an order of magnitude: 0.3 s on the fastest, 3–6 s
@@ -234,7 +242,7 @@ nudge. Run `/voice-doctor`.
 ## Working on it
 
 ```bash
-npm test           # 106 tests, none of them touches the network
+npm test           # 114 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```
