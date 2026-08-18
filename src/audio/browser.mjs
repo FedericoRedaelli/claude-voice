@@ -137,6 +137,11 @@ export function createBridge({
   // desktop can both be listening through the same forwarded port at different times, and a
   // dead one only stops being in here when its socket closes.
   const mediaSockets = new Set();
+  // Answers typed into the page, and whether the page has switched the voice off. Silent is a
+  // property of the TAB, not of the call: it is a person deciding they cannot talk right now,
+  // and it has to survive from one question to the next without being asked again.
+  const textListeners = new Set();
+  let silent = false;
   let armed = false;
   let socket = null;
   let waiters = [];
@@ -300,6 +305,20 @@ export function createBridge({
           } catch {
             /* the tab went away between typing and sending */
           }
+        }
+        // The voice, switched off from the page. It costs nothing to honour and it saves
+        // everything downstream: no synthesis, no microphone, no transcription, no brain.
+        else if (msg.t === "silent") {
+          silent = !!msg.on;
+          log(`voice ${silent ? "off" : "on"} (from the page)`);
+        }
+        // A sentence typed instead of spoken. Same standing as a click: it answers the call.
+        else if (msg.t === "say") {
+          const text = String(msg.text ?? "").trim();
+          if (text) {
+            log(`typed answer (${text.length} chars)`);
+            for (const cb of [...textListeners]) cb(text);
+          }
         } else if (msg.t === "error") log(`page reported: ${msg.message}`);
         else if (msg.t === "ready") log(`page ready (mic @ ${msg.sampleRate} Hz)`);
       });
@@ -428,7 +447,10 @@ export function createBridge({
     },
     // Called when a new question is armed. Without it every call would leave its own resolver
     // behind, and one click would wake all of them — including the ones whose call is long over.
-    forgetPicks: () => pickListeners.clear(),
+    forgetPicks: () => {
+      pickListeners.clear();
+      textListeners.clear();
+    },
 
     // The receipt is the end of the call: whatever was on the table has been answered.
     report: (r) => {
@@ -439,6 +461,18 @@ export function createBridge({
       lastReport = r;
       send({ t: "report", ...r });
     },
+    isSilent: () => silent,
+    // Resolves with the first sentence typed into the page. Cleared per call by forgetPicks,
+    // for the same reason clicks are: a listener from a finished call must not be woken.
+    waitForText: () =>
+      new Promise((resolve) => {
+        const cb = (text) => {
+          textListeners.delete(cb);
+          resolve(text);
+        };
+        textListeners.add(cb);
+      }),
+
     // How many machines could pause their music right now. Zero is the normal case, and the
     // reason the local fallback exists.
     mediaAgents: () => mediaSockets.size,
@@ -738,6 +772,10 @@ export function createAudio({ cfg = config } = {}) {
     // The mouse path into the same call. Never resolves when there is no bridge, which is what
     // makes it safe to race against everything else.
     waitForPick: () => bridge?.waitForPick() ?? new Promise(() => {}),
+
+    // The keyboard path, and the switch that turns the voice off entirely.
+    waitForText: () => bridge?.waitForText() ?? new Promise(() => {}),
+    isSilent: () => bridge?.isSilent() ?? false,
 
     // Stop waiting for the button. Called when something else has already answered.
     abandonWait: () => bridge?.abandonStart(),

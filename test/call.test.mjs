@@ -443,3 +443,51 @@ test("a rejected transcript switches the working cue off before asking again", a
   await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
   assert.deepEqual(flips, [true, false, true, false], "one on/off per turn, retry included");
 });
+
+// SILENT MODE. The voice is optional; the decision is not. Nothing is spoken, no microphone
+// opens and no model is called — and the call still comes back with an answer.
+test("a silent page answers by clicking, and pays for nothing", async () => {
+  const f = fakes({ heard: ["mai sentito"] });
+  f.audio.isSilent = () => true;
+  f.audio.waitForPick = async () => 1;
+  f.audio.waitForText = () => new Promise(() => {});
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(out, { kind: "choice", value: OPTIONS[1] });
+  assert.equal(f.log.spoken.length, 0, "no synthesis");
+  assert.equal(f.log.played, 0, "no playback");
+});
+
+test("a typed answer reaches Claude as an instruction in the user's own words", async () => {
+  const f = fakes();
+  f.audio.isSilent = () => true;
+  f.audio.waitForPick = () => new Promise(() => {});
+  f.audio.waitForText = async () => "apri la PR ma prima fai squash";
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(out, { kind: "message", value: "apri la PR ma prima fai squash" });
+  assert.equal(f.log.reports.at(-1).heard, "apri la PR ma prima fai squash", "the receipt shows it");
+});
+
+test("a silent call nobody answers closes, rather than waiting on a microphone", async () => {
+  const f = fakes({ clicked: false });
+  f.audio.isSilent = () => true;
+  f.audio.waitForPick = () => new Promise(() => {});
+  f.audio.waitForText = () => new Promise(() => {});
+
+  assert.deepEqual(
+    await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg }),
+    { kind: "end" },
+  );
+});
+
+// The text box is not a silent-mode feature: it answers a voice call too, at any point.
+test("typing wins a voice call that is waiting for the button", async () => {
+  const f = fakes();
+  f.audio.waitForButton = () => new Promise(() => {}); // nobody presses it
+  f.audio.waitForText = async () => "lascia stare, faccio altro";
+
+  const out = await runCall({ message: "m", options: OPTIONS, spoken: "s", modules: f, cfg });
+  assert.deepEqual(out, { kind: "message", value: "lascia stare, faccio altro" });
+  assert.equal(f.log.spoken.length, 0, "it never got as far as speaking");
+});

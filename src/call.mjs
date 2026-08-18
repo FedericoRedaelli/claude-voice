@@ -76,7 +76,23 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
           return CLICKED;
         })
       : NEVER;
-  const orClick = (p) => Promise.race([p, click]);
+
+  // Sx — the typed answer. The same standing as a click: an answer that costs no synthesis, no
+  // microphone and no model. It exists because the voice is optional and the decision is not —
+  // a meeting, a sleeping flatmate, or simply not wanting to talk are all reasons to answer
+  // this question in writing, and none of them are reasons to make Claude wait for silence.
+  const TYPED = Symbol("typed");
+  let typedText = null;
+  const typed =
+    typeof audio.waitForText === "function"
+      ? audio.waitForText().then((t) => {
+          typedText = t;
+          return TYPED;
+        })
+      : NEVER;
+  // Every point where the call waits for the user races all three: the button, a click on an
+  // option, and a sentence typed into the page.
+  const orAnswer = (p) => Promise.race([p, click, typed]);
 
   // An index nobody offered is a broken page, not a decision. Drop it and put the call back
   // where it was, rather than closing on a position out of thin air.
@@ -100,8 +116,37 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     return decision;
   };
 
+  // Typed words are the user's own instruction, not a position among the options — the same
+  // thing the voice path produces when the second reading hears no choice.
+  const closeOnTyped = () => {
+    audio.abandonWait?.();
+    mark("typed", { chars: (typedText ?? "").length });
+    const decision = normalizeDecision({ kind: "message", value: typedText }, options, log);
+    audio.report({ decision, heard: typedText, spoken: say, message, options, turns, trace });
+    return decision;
+  };
+
+  // Silent mode: the page has switched the voice off. Nothing is spoken, the microphone never
+  // opens and no model is called — but the question is still on the table, with its options
+  // and a text box. The loop's promise is that a decision comes back; the voice is only the
+  // usual way of making one.
+  if (audio.isSilent?.()) {
+    log("the page is in silent mode — waiting for a click or a typed answer");
+    mark("silent");
+    // waitForButton is here only as the clock: it is what gives up after cfg.waitMs. A press
+    // cannot be the answer in silent mode — the page hides the button — so a `true` from it
+    // goes back to waiting rather than closing a call nobody answered.
+    const gaveUp = audio.waitForButton(cfg.waitMs).then((ok) => (ok ? NEVER : null));
+    const answered = await Promise.race([click, typed, gaveUp]);
+    if (answered === TYPED) return closeOnTyped();
+    if (answered === CLICKED && clickIsReal()) return closeOnClick();
+    log("nobody answered the silent call");
+    return { kind: "end" };
+  }
+
   const button = audio.waitForButton(cfg.waitMs);
-  let pressed = await orClick(button);
+  let pressed = await orAnswer(button);
+  if (pressed === TYPED) return closeOnTyped();
   if (pressed === CLICKED) {
     if (clickIsReal()) return closeOnClick();
     pressed = await button; // junk index — go back to waiting for the button
@@ -123,7 +168,11 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
 
     // S2 + S3 — one utterance, then words. Unless they answered with the mouse instead.
     const utterance = audio.record();
-    let captured = await orClick(utterance);
+    let captured = await orAnswer(utterance);
+    if (captured === TYPED) {
+      audio.working?.(false);
+      return closeOnTyped();
+    }
     if (captured === CLICKED) {
       if (clickIsReal()) return closeOnClick();
       captured = await utterance;

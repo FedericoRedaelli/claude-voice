@@ -109,8 +109,9 @@ you want it stated up front in a project, add this to your `CLAUDE.md`:
 
 > Write your answer as normal text first, then call `talk_to_user` with `message` = that full
 > text verbatim (it is the voice agent's only knowledge — a summary makes follow-up questions
-> impossible), `options` = the choices you offered, and `spoken` = one or two short sentences
-> to be read aloud word for word, naming the options out loud and numbered.
+> impossible), `options` = the choices you offered, and `spoken` = what is read aloud, word for
+> word — two to four sentences, roughly 40-70 words: what happened and why it matters, then the
+> options named and numbered out loud. No code, no paths, no file names.
 
 ### Telling us what went wrong
 
@@ -263,6 +264,14 @@ Claude gets back exactly one of:
 {"kind": "end"}
 ```
 
+**The voice can be switched off from the page.** A button under **Parla** silences it: nothing
+is spoken, the microphone never opens, and no model is called — but the question stays on the
+table with its options clickable and a text box under them, so the call still comes back with a
+decision. It is a property of the tab, not of a call: someone who cannot talk right now cannot
+talk for the next question either, so it survives reloads and is re-stated to a server that
+restarted. The text box is there in voice mode too — typing wins the call at any point, and
+what you type reaches Claude as an instruction in your own words.
+
 **Text fallback.** `VOICE_MODE=text` runs the same loop on the terminal — no key, no browser,
 no audio. The voice path also falls back to it by itself when the key is missing, the tab never
 opens or a provider is down: the voice is optional, the decision is not.
@@ -350,7 +359,7 @@ diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server 
 ## Working on it
 
 ```bash
-npm test           # 156 tests, none of them touches the network
+npm test           # 162 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```

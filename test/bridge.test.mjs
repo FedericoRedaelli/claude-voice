@@ -266,6 +266,36 @@ test("a media agent without the token never attaches", async () => {
   });
 });
 
+// Silent mode is a property of the TAB: someone who cannot talk now cannot talk for the next
+// question either, so the page states it and the server keeps it between calls.
+test("the page can switch the voice off, and typed answers still arrive", async () => {
+  await withBridge(async ({ bridge, connect }) => {
+    const tab = await connect();
+    assert.equal(bridge.isSilent(), false);
+
+    tab.send({ t: "silent", on: true });
+    while (!bridge.isSilent()) await new Promise((r) => setTimeout(r, 10));
+
+    const typed = bridge.waitForText();
+    tab.send({ t: "say", text: "  fai la seconda ma senza test  " });
+    assert.equal(await typed, "fai la seconda ma senza test", "trimmed, and nothing else");
+
+    tab.send({ t: "silent", on: false });
+    while (bridge.isSilent()) await new Promise((r) => setTimeout(r, 10));
+  });
+});
+
+test("an empty typed answer is not an answer", async () => {
+  await withBridge(async ({ bridge, connect }) => {
+    const tab = await connect();
+    let woke = false;
+    bridge.waitForText().then(() => (woke = true));
+    tab.send({ t: "say", text: "   " });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(woke, false, "the call is still waiting for a real one");
+  });
+});
+
 // Path traversal, on the one server in this project that serves files from disk.
 test("the sounds are served, and only the sounds", async () => {
   await withBridge(async ({ bridge }) => {

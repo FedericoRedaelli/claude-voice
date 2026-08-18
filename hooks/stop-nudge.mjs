@@ -32,8 +32,11 @@ const NUDGE_REASON =
   "answer in the terminal as normal FIRST, then pass: `message` = that full text, verbatim " +
   "(it is the voice agent's only knowledge, so a summary makes follow-up questions " +
   "impossible — strip only code blocks and raw output); `options` = the distinct choices you " +
-  "offered; `spoken` = one or two short sentences to be read aloud word for word, naming the " +
-  "options out loud and numbered. When the tool returns kind=end, you may stop.";
+  "offered; `spoken` = what is read aloud, word for word. Write it for the ear: two to four " +
+  "sentences, roughly 40-70 words — enough to say what happened and why it matters before the " +
+  "question, then the options named and numbered out loud (\"uno, ...; due, ...\"). Shorter " +
+  "lands as an abrupt question with no context; longer and the user is sitting there waiting " +
+  "to answer. No code, no paths, no file names. When the tool returns kind=end, you may stop.";
 
 function allow() {
   // No output + exit 0 = let Claude stop.

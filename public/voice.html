@@ -133,6 +133,14 @@
       /* The feedback box. Deliberately quiet: it is optional, and a call nobody comments on
          should not look unfinished. The disclosure is NOT quiet — it is the part that says
          these words leave the call and go to the people developing this. */
+      /* Answering with the keyboard, and switching the voice off. Both live under the button
+         because they are the same question asked a different way, not a separate feature. */
+      #answer { display: flex; gap: .5rem; margin-top: .8rem; }
+      #answer input { flex: 1; padding: .55rem .7rem; border-radius: .5rem; background: #16171d;
+                      color: var(--text); border: 1px solid var(--line); font: inherit; font-size: .9rem; }
+      #answer input:focus { outline: none; border-color: var(--accent); }
+      #voiceToggle { margin-top: .6rem; font-size: .78rem; }
+      #voiceToggle[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
       #fb { margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
       #fb label { display: block; font-size: .7rem; letter-spacing: .07em; text-transform: uppercase;
                   color: var(--muted); }
@@ -164,6 +172,12 @@
         <p id="ask">In attesa che Claude chieda qualcosa.</p>
         <div id="opts"></div>
         <button class="pill ghost" id="start" disabled>Parla<kbd>spazio</kbd></button>
+
+        <div id="answer">
+          <input id="sayText" type="text" autocomplete="off" placeholder="…oppure scrivi la risposta" />
+          <button class="pill ghost" id="saySend">Invia</button>
+        </div>
+        <button class="pill ghost" id="voiceToggle" aria-pressed="false">Voce attiva — premi per silenziare</button>
 
         <div id="detail"></div>
 
@@ -361,6 +375,7 @@
         let oneShot = 0.6;
         let loopVolume = 0.05;
         let enabled = true;
+        let muted = false;
         let loopNodes = null; // the recorded loop, playing
         let synthNodes = null; // or the fallback hum, playing
 
@@ -450,7 +465,7 @@
           },
           // One shot: the call opening, the waiting pulse, the call closing.
           play(name) {
-            if (!ctx || !oneShot) return;
+            if (!ctx || !oneShot || muted) return;
             const buf = files ? buffers.get(name) : null;
             if (!buf) {
               beep(name === "end" ? 520 : name === "attention" ? 660 : 880, name === "start" ? 160 : 110, oneShot * 0.25);
@@ -467,7 +482,7 @@
             };
           },
           startLoop() {
-            if (!ctx || !enabled || !loopVolume || loopNodes || synthNodes) return;
+            if (!ctx || !enabled || muted || !loopVolume || loopNodes || synthNodes) return;
             const buf = files ? buffers.get("thinking") : null;
             if (!buf) return startSynthHum();
             const gain = new GainNode(ctx, { gain: 0 });
@@ -483,6 +498,12 @@
             fadeOut(synthNodes);
             loopNodes = null;
             synthNodes = null;
+          },
+          // Silent mode: the cues are part of the voice, and switching the voice off has to
+          // switch off the sound it makes, or the page is quiet except for the beeping.
+          setMuted(v) {
+            muted = !!v;
+            if (muted) this.stopLoop();
           },
           get running() {
             return Boolean(loopNodes || synthNodes);
@@ -546,6 +567,60 @@
         render();
       }
 
+      // SILENT MODE. The voice is optional; the decision is not. Switched off here, the page
+      // stops speaking, never opens the microphone and asks for no model — and keeps both ways
+      // of answering that cost nothing: the option buttons, and a sentence typed in the box.
+      //
+      // It is a property of the tab, not of a call: someone who cannot talk right now cannot
+      // talk for the next question either, so it is remembered across reloads and re-sent on
+      // every reconnect. The server is TOLD rather than asked to infer, because it is the one
+      // that would otherwise pay for a synthesis nobody is going to hear.
+      let silent = localStorage.getItem("voiceSilent") === "1";
+
+      function applySilent() {
+        localStorage.setItem("voiceSilent", silent ? "1" : "0");
+        $("voiceToggle").setAttribute("aria-pressed", String(silent));
+        $("voiceToggle").textContent = silent
+          ? "Voce silenziata — premi per riattivarla"
+          : "Voce attiva — premi per silenziare";
+        startBtn.hidden = silent;
+        $("sayText").placeholder = silent ? "Scrivi la risposta" : "…oppure scrivi la risposta";
+        sfx.setMuted(silent);
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "silent", on: silent }));
+        render();
+      }
+
+      $("voiceToggle").addEventListener("click", () => {
+        silent = !silent;
+        applySilent();
+        detail(silent ? "Voce spenta. Rispondi con un'opzione o scrivendo." : "Voce riattivata.");
+      });
+
+      // A typed answer reaches Claude as an instruction in the user's own words — the same
+      // thing the voice path produces when nothing you said was a choice among the options.
+      function sendTyped() {
+        const text = $("sayText").value.trim();
+        if (!text) return;
+        if (ws?.readyState !== 1) {
+          detail("Non collegato — riprova quando la scheda si riconnette.");
+          return;
+        }
+        ws.send(JSON.stringify({ t: "say", text }));
+        $("sayText").value = "";
+        picked = true; // the question has been answered; a later click must not answer it again
+        for (const o of $("opts").children) o.disabled = true;
+        startBtn.disabled = true;
+        state.armed = false;
+        render();
+      }
+      $("saySend").addEventListener("click", sendTyped);
+      $("sayText").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendTyped();
+        }
+      });
+
       // The one thing on this page that is not part of a call. It is optional, it is only ever
       // sent when the button is pressed, and the note above it says what goes with it.
       $("fbSend").addEventListener("click", () => {
@@ -570,6 +645,9 @@
       document.addEventListener("keydown", (e) => {
         if ($("live").hidden || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.target instanceof HTMLButtonElement) return;
+        // A space in the middle of a typed answer is a space, and "3" is a three. The
+        // shortcuts belong to the page, not to the text box.
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
         if (e.key === " ") {
           if (!startBtn.disabled) { e.preventDefault(); startBtn.click(); }
           return;
@@ -621,6 +699,8 @@
           detail("");
           render();
           ws.send(JSON.stringify({ t: "ready", sampleRate: RATE }));
+          // Re-stated on every reconnect: a server that restarted has no idea this tab is silent.
+          ws.send(JSON.stringify({ t: "silent", on: silent }));
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== "string") {
@@ -654,6 +734,7 @@
           else if (msg.t === "armed") {
             state.armed = !!msg.on;
             startBtn.disabled = !msg.on || picked;
+            if (msg.on) $("sayText").focus({ preventScroll: true });
           } else if (msg.t === "report") {
             sfx.stopLoop(); // the call is over, whatever it was waiting for
             sfx.play("end");
@@ -767,6 +848,7 @@
           ctx.createMediaStreamSource(stream).connect(capNode).connect(mute).connect(ctx.destination);
           playNode.connect(ctx.destination);
           sfx.attach(ctx);
+          applySilent();
 
           goBtn.hidden = true;
           $("live").hidden = false;

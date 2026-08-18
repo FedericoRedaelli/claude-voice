@@ -21,10 +21,12 @@ order, every time.
    - `options`: the distinct choices you offered, if any (as an array of strings).
    - `spoken`: the opening line, word for word, as you want it said out loud. **Always pass
      it.** Without it the agent composes its own opening from `message` — it re-summarises,
-     adds framing, and runs about nine seconds with the user unable to answer. One or two
-     sentences, under ~35 words: what happened, then the question with the options named and
-     numbered out loud ("uno, ...; due, ...; tre, ... — quale?"). The numbering is what lets
-     them answer "la prima". No code, no paths, no file names.
+     adds framing, and runs about nine seconds with the user unable to answer. Two to four
+     sentences, roughly 40-70 words: what happened and why it matters, then the question with
+     the options named and numbered out loud ("uno, ...; due, ...; tre, ... — quale?"). The
+     numbering is what lets them answer "la prima". Under ~35 words was too tight — it lands as
+     an abrupt question with no context — but past ~70 they are sitting there waiting to answer.
+     No code, no paths, no file names.
 
 The tool shows the question in a browser tab, beeps, and waits ~30s for the user to press
 "Parla". If they don't (they're away, or they'd rather type), it returns `{"kind":"end"}` — no
