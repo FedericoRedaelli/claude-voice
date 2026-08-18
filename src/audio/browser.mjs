@@ -29,12 +29,23 @@ import {
   pageUrl,
 } from "../bridge-url.mjs";
 import { config } from "../config.mjs";
+import { appendFeedback, buildRecord } from "../feedback.mjs";
 import { beepPcm, durationMs, rmsPct } from "../pcm.mjs";
 
 // Re-exported so the audio backend stays the one place the rest of the code imports from.
 export { browserHost, browserPort, hasDisplay, loadOrCreateToken, pageUrl };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+// Which version produced a record. Read once, and never fatal: a feedback record without a
+// version number is still worth having.
+function pluginVersion() {
+  try {
+    return JSON.parse(readFileSync(join(HERE, "..", "..", "package.json"), "utf8")).version ?? null;
+  } catch {
+    return null;
+  }
+}
 const PAGE = join(HERE, "..", "..", "public", "voice.html");
 const log = (m) => process.stderr.write(`[claude-voice] audio/browser: ${m}\n`);
 
@@ -114,6 +125,7 @@ export function createBridge({
   // page comes back blank: no options to click, the button dead, and a call that goes on
   // waiting for three minutes for an answer the user has no way to give.
   let pendingAsk = null;
+  let lastReport = null;
   let armed = false;
   let socket = null;
   let waiters = [];
@@ -214,6 +226,20 @@ export function createBridge({
         else if (msg.t === "pick") {
           log(`option ${Number(msg.index) + 1} clicked on the page`);
           for (const cb of [...pickListeners]) cb(Number(msg.index));
+        }
+        // An optional developer comment about the call that just ended. It is the one message
+        // the page sends that outlives the call, so it is answered rather than acted on: the
+        // page needs to be told it landed, or the user retypes it.
+        else if (msg.t === "feedback") {
+          const saved = appendFeedback(
+            buildRecord({ comment: msg.text, call: lastReport ?? {}, version: pluginVersion() }),
+          );
+          log(saved ? "feedback saved" : "feedback not saved (empty, or the file is not writable)");
+          try {
+            ws.send(JSON.stringify({ t: "feedbackSaved", ok: saved }));
+          } catch {
+            /* the tab went away between typing and sending */
+          }
         } else if (msg.t === "error") log(`page reported: ${msg.message}`);
         else if (msg.t === "ready") log(`page ready (mic @ ${msg.sampleRate} Hz)`);
       });
@@ -340,6 +366,10 @@ export function createBridge({
     // The receipt is the end of the call: whatever was on the table has been answered.
     report: (r) => {
       pendingAsk = null;
+      // Kept so a comment typed on the page a minute later still has the call it is about.
+      // The page could send it all back, but then what a record contains would be whatever a
+      // tab decided to return, and a stale tab would file feedback about the wrong call.
+      lastReport = r;
       send({ t: "report", ...r });
     },
     clear: () => send({ t: "clear" }),

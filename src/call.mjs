@@ -51,6 +51,14 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
   let say = spoken.trim() || message;
   const turns = [];
 
+  // A breadcrumb per stage, for the feedback record and nothing else. Times are relative to
+  // the start of the call: the absolute clock says nothing, "the brain took 4.1 s" says
+  // everything, and it is the number you cannot recover afterwards from any log.
+  const startedAt = Date.now();
+  const trace = [];
+  const mark = (stage, detail) => trace.push({ stage, at: Date.now() - startedAt, ...detail });
+  mark("armed");
+
   // Sx — the click. An option pressed on the page is the same answer the voice path spends a
   // synthesis, a recording, a transcription and two model calls to reach, so it short-circuits
   // all of it. It can land at any moment, which is why it is a promise raced against the two
@@ -86,8 +94,9 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     audio.abandonWait?.();
     // Through the policy like every other decision: the click is trusted about the position,
     // not about what Claude is finally told.
+    mark("clicked", { option: clicked + 1 });
     const decision = normalizeDecision({ kind: "choice", optionIndex: clicked + 1 }, options, log);
-    audio.report({ decision, spoken: say, message, options });
+    audio.report({ decision, spoken: say, message, options, turns, trace });
     return decision;
   };
 
@@ -107,6 +116,7 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
 
     // S1 — say it, verbatim.
     const voice = await tts.speak(say);
+    mark("spoke", { chars: say.length });
     const { interrupted } = await audio.play(voice);
     if (interrupted) log("interrupted — listening");
     if (stopped()) return { kind: "end" };
@@ -119,6 +129,7 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
       captured = await utterance;
     }
     const heard = await stt.transcribe(captured);
+    mark("heard", { chars: (heard ?? "").length });
     if (stopped()) return { kind: "end" };
 
     // Silence is not a turn, and neither is a transcript in the wrong alphabet: that is the
@@ -133,6 +144,7 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
 
     // S4 — choosing, asking, or done?
     const routed = await brain.route({ message, options, turns });
+    mark("routed", { kind: routed.kind });
     if (stopped()) return { kind: "end" };
 
     // The brain answered with nothing. Ask again rather than reporting a blank decision: one
@@ -164,6 +176,7 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
     // an unverified position is exactly the failure this exists to prevent.
     if (routed.decision?.kind === "choice") {
       const seen = await confirmedIndex({ brain, options, heard, log });
+      mark("confirmed", { first: routed.decision.optionIndex, second: seen });
       if (stopped()) return { kind: "end" };
 
       if (seen === null) {
@@ -179,11 +192,13 @@ export async function runCall({ message, options = [], spoken = "", signal, modu
 
     // S5 — policy has the last word on what Claude is told.
     const decision = normalizeDecision(routed.decision, options, log);
-    audio.report({ decision, heard, spoken: say, message, options });
+    mark("decided", { kind: decision.kind });
+    audio.report({ decision, heard, spoken: say, message, options, turns, trace });
     return decision;
   }
 
   log(`hit the ${cfg.maxTurns}-turn ceiling — closing`);
-  audio.report({ decision: { kind: "end" }, message, options });
+  mark("ceiling");
+  audio.report({ decision: { kind: "end" }, message, options, turns, trace });
   return { kind: "end" };
 }

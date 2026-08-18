@@ -122,6 +122,19 @@
       #report .kind.choice { background: #24402f; color: #8fdcab; }
       #report .kind.message { background: #2d3550; color: #a8bdf0; }
       #report .kind.end { background: #3a2b28; color: #e0a793; }
+      /* The feedback box. Deliberately quiet: it is optional, and a call nobody comments on
+         should not look unfinished. The disclosure is NOT quiet — it is the part that says
+         these words leave the call and go to the people developing this. */
+      #fb { margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+      #fb label { display: block; font-size: .7rem; letter-spacing: .07em; text-transform: uppercase;
+                  color: var(--muted); }
+      #fb textarea { width: 100%; margin-top: .4rem; padding: .5rem .6rem; border-radius: .5rem;
+                     background: #16171d; color: var(--text); border: 1px solid var(--line);
+                     font: inherit; font-size: .85rem; resize: vertical; }
+      #fb textarea:focus { outline: none; border-color: var(--accent); }
+      #fbNote { margin: .55rem 0 .7rem; font-size: .74rem; line-height: 1.45; color: var(--muted); }
+      #fbNote b { color: var(--text); font-weight: 600; }
+      #fbDone { margin-left: .6rem; font-size: .78rem; color: var(--green); }
       .hint { margin-top: 2rem; font-size: .76rem; color: var(--muted); opacity: .7; }
     </style>
   </head>
@@ -149,6 +162,21 @@
         <div id="report" hidden>
           <h2>Ultima chiamata</h2>
           <dl id="reportBody"></dl>
+
+          <div id="fb">
+            <label for="fbText">Commento per lo sviluppo (facoltativo)</label>
+            <textarea id="fbText" rows="2" placeholder="Cos'è andato storto, o bene?"></textarea>
+            <p id="fbNote">
+              <b>Questi dati escono dalla chiamata e servono a migliorare claude-voice.</b>
+              Se scrivi un commento vengono salvati insieme a esso: la domanda di Claude, le
+              opzioni, <b>le tue parole così come sono state trascritte</b>, la decisione presa
+              e i tempi di ogni stadio. Finiscono in <code>~/.claude-voice/feedback.jsonl</code>
+              su questa macchina, e non partono da qui finché non sei tu a esportarli con
+              <code>/voice-feedback</code>. Campo vuoto: non viene salvato nulla.
+            </p>
+            <button class="pill ghost" id="fbSend">Invia commento</button>
+            <span id="fbDone" hidden></span>
+          </div>
         </div>
       </div>
 
@@ -353,6 +381,24 @@
         render();
       }
 
+      // The one thing on this page that is not part of a call. It is optional, it is only ever
+      // sent when the button is pressed, and the note above it says what goes with it.
+      $("fbSend").addEventListener("click", () => {
+        const text = $("fbText").value.trim();
+        if (!text) {
+          $("fbDone").textContent = "Scrivi qualcosa, oppure lascia perdere.";
+          $("fbDone").hidden = false;
+          return;
+        }
+        if (ws?.readyState !== 1) {
+          $("fbDone").textContent = "Non collegato — riprova quando la scheda si riconnette.";
+          $("fbDone").hidden = false;
+          return;
+        }
+        $("fbSend").disabled = true;
+        ws.send(JSON.stringify({ t: "feedback", text }));
+      });
+
       // Keyboard, because the mouse is the slow way to press a numbered list. Space is the
       // button; a digit is the option. Both are skipped when a button already has focus, or
       // the browser would fire the click as well and we would answer twice.
@@ -386,6 +432,11 @@
             `<dt>Opzioni</dt><dd>${r.options.map((o, i) => `${i + 1}. ${esc(o)}`).join("<br>")}</dd>`,
           );
         $("reportBody").innerHTML = rows.join("");
+        // A new call, a new comment: leaving the previous one in the box invites filing it
+        // against the wrong call, which is the one way this feature could produce noise.
+        $("fbText").value = "";
+        $("fbSend").disabled = false;
+        $("fbDone").hidden = true;
         $("report").hidden = false;
         // The call is over: nothing on this page can answer it any more, and nothing is waiting.
         for (const o of $("opts").children) o.disabled = true;
@@ -436,6 +487,11 @@
             state.armed = !!msg.on;
             startBtn.disabled = !msg.on || picked;
           } else if (msg.t === "report") showReport(msg);
+          else if (msg.t === "feedbackSaved") {
+            $("fbDone").textContent = msg.ok ? "Salvato. Grazie." : "Non salvato — vedi il log.";
+            $("fbDone").hidden = false;
+            $("fbSend").disabled = msg.ok;
+          }
           // Another tab took over. Retrying would evict it two seconds later, and it would
           // evict us back — with three tabs open that never settles, and the cue plays into
           // whichever one is about to lose. Stand down instead.

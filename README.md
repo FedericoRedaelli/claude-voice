@@ -112,6 +112,22 @@ you want it stated up front in a project, add this to your `CLAUDE.md`:
 > impossible), `options` = the choices you offered, and `spoken` = one or two short sentences
 > to be read aloud word for word, naming the options out loud and numbered.
 
+### Telling us what went wrong
+
+Under the receipt at the end of a call there is an optional comment box. Fill it in and the
+comment is saved **with the call it is about**: the question, the options, your words as
+Whisper transcribed them, the decision, and how long each stage took. That is the difference
+between "it picked the wrong option" and a record you can actually fix something from — the
+four seconds where everything happens are otherwise invisible once the call is over.
+
+The page says so above the box, because those are your spoken words: they go to a file,
+`~/.claude-voice/feedback.jsonl`, on your own machine. **Nothing is uploaded.** Leaving the box
+empty writes nothing at all.
+
+`/voice-feedback` shows what is there. `--export <checkout>` copies it into `feedback/` in a
+clone of this repository, for a human to read and commit — a deliberate step, taken by someone
+who can see what is in it, and the only way anything here reaches the repo.
+
 ---
 
 ## Why it is built this way
@@ -217,6 +233,7 @@ overrides them. The ones worth knowing:
 | `VOICE_BROWSER_PORT` | `8787` | the bridge's loopback port |
 | `VOICE_BROWSER_OPEN` | auto | `0` never opens a browser, `1` always tries |
 | `VOICE_BROWSER_CMD` | — | the exact command that opens a URL, when no guess fits |
+| `VOICE_FEEDBACK_FILE` | `~/.claude-voice/feedback.jsonl` | where the comment box writes |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
 | `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
 | `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
@@ -267,7 +284,7 @@ diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server 
 ## Working on it
 
 ```bash
-npm test           # 130 tests, none of them touches the network
+npm test           # 137 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```
