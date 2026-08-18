@@ -253,12 +253,21 @@ headphones always do.
 **Claude never calls the tool.** The nudge only fires when the loop can actually run: no key, no
 nudge. Run `/voice-doctor`.
 
+**`talk_to_user` does not exist at all.** That is not the plugin failing to start, it is usually
+the client not starting it. Answering "no" once to the prompt that asks whether to trust a
+project's MCP servers writes `voice` into `disabledMcpjsonServers` in `~/.claude.json`, and the
+server is then never launched — indistinguishable, from the chat, from a crash. **Quit Claude
+Code before editing that file**: it rewrites it from memory on exit, so a fix applied in a live
+session is undone the moment you restart, which is exactly what makes this one expensive to
+diagnose. `/voice-doctor` reports it under `mcp`, and every start of the server appends a line to
+`~/.claude-voice/mcp-launch.log` — no line for today means it was never launched.
+
 ---
 
 ## Working on it
 
 ```bash
-npm test           # 122 tests, none of them touches the network
+npm test           # 130 tests, none of them touches the network
 npm run smoke:mcp  # the MCP server boots and exposes the tool
 npm run try        # run a whole call by hand
 ```

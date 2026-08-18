@@ -15,6 +15,7 @@ import { createInterface } from "node:readline/promises";
 import { missingDeps, pluginRoot } from "../src/bootstrap.mjs";
 import { envFiles, parseEnvFile, pluginEnvFile, userEnvDir, userEnvFile } from "../src/env.mjs";
 import { opener } from "../src/bridge-url.mjs";
+import { mcpStatus } from "../src/diagnose.mjs";
 
 const EXAMPLE = join(pluginRoot, ".env.example");
 
@@ -115,6 +116,8 @@ async function status() {
     // opens it for us, which is a different question and the one that decides the experience.
     opensBrowser: opener() ? { command: opener().cmd, where: opener().where } : null,
     browserPort: Number(process.env.VOICE_BROWSER_PORT) || 8787,
+    // Why talk_to_user might not be there at all: crashed, or never launched.
+    mcp: mcpStatus(),
   };
 }
 

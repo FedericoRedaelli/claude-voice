@@ -10,11 +10,43 @@
 // import in bin/voice-mcp.mjs.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Every start of the server, one line, in the user's own directory.
+//
+// When this server does not come up, Claude Code says "MCP failed to connect" and the stderr
+// that would explain why is not somewhere a user can reach. The one diagnosis that cost the
+// most was not even a startup failure: the client had the server DISABLED, so it was never
+// launched at all — and no amount of reading the code could tell that apart from a crash,
+// because both look like a tool that is not there. A log with no line for today answers it in
+// one look. It lives outside the plugin because a plugin update replaces the plugin directory.
+export const LAUNCH_LOG = join(homedir(), ".claude-voice", "mcp-launch.log");
+const LOG_MAX_BYTES = 64 * 1024;
+
+export function noteLaunch(note, file = LAUNCH_LOG) {
+  try {
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+    // Truncate rather than rotate: this is a breadcrumb trail, not an audit log, and a file
+    // that grows without bound in someone's home directory is a bug of its own.
+    try {
+      if (statSync(file).size > LOG_MAX_BYTES) writeFileSync(file, "");
+    } catch {
+      /* no file yet */
+    }
+    appendFileSync(
+      file,
+      `${new Date().toISOString()} pid=${process.pid} node=${process.versions.node} root=${pluginRoot} ${note}\n`,
+      { mode: 0o600 },
+    );
+  } catch {
+    // A server that cannot write its own breadcrumb still has to start.
+  }
+}
 
 const log = (m) => process.stderr.write(`[claude-voice] ${m}\n`);
 

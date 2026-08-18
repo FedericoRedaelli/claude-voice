@@ -23,4 +23,17 @@ opened at all and where it will appear:
   `ssh -L <browserPort>:127.0.0.1:<browserPort> <user>@<host>`. If they are in VS Code and it
   is still null, the `code` CLI is not on PATH in this shell — VS Code's own terminal has it.
 
+If the user's complaint is that `talk_to_user` is missing, read `mcp` before anything else —
+it separates the two causes that look identical from the chat:
+
+- `mcp.disabledByClient` true — the client has the server turned off (it is in
+  `disabledMcpjsonServers` for the projects listed). Say `mcp.hint` in full: the edit only
+  holds if Claude Code is **quit first**, because it rewrites `~/.claude.json` from memory on
+  exit. This is the common one, and editing the plugin's launch command instead is a dead end.
+- `mcp.everLaunched` false with nothing disabled — the server has never run here: the plugin is
+  installed but not being launched. Check `/mcp` and whether Claude Code was restarted after
+  the install.
+- `mcp.lastLaunches` showing recent lines — the server does start, so the fault is elsewhere;
+  a line that says `launched` with no `serving` after it is a start that died on its imports.
+
 Do not print the key, and do not offer to change any setting unless the user asks.
