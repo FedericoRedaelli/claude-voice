@@ -17,6 +17,7 @@ import { envFiles, parseEnvFile, pluginEnvFile, userEnvDir, userEnvFile } from "
 import { opener } from "../src/bridge-url.mjs";
 import { mcpStatus } from "../src/diagnose.mjs";
 import { resolveMedia } from "../src/media.mjs";
+import { isOn, sessionFile } from "../src/gate.mjs";
 import { onPath } from "../src/bridge-url.mjs";
 
 const EXAMPLE = join(pluginRoot, ".env.example");
@@ -120,6 +121,13 @@ async function status() {
     browserPort: Number(process.env.VOICE_BROWSER_PORT) || 8787,
     // Why talk_to_user might not be there at all: crashed, or never launched.
     mcp: mcpStatus(),
+    // The session switch. Installed does not mean on: the loop is off until /voice-on says so
+    // for this session id, so "the plugin is installed but nothing is spoken" is usually this.
+    session: {
+      id: process.env.CLAUDE_CODE_SESSION_ID || null,
+      on: isOn(process.env.CLAUDE_CODE_SESSION_ID),
+      stateFile: process.env.CLAUDE_CODE_SESSION_ID ? sessionFile(process.env.CLAUDE_CODE_SESSION_ID) : null,
+    },
     // Whether pausing other audio would reach the machine with the speakers. The question is
     // never "can we pause" — it is "pause WHOSE music": this runs where Claude Code runs, and
     // that is the user's own machine in some setups and a server in others.

@@ -3,6 +3,12 @@
 This project is loaded with the **claude-voice** plugin. It gives the user a voice loop:
 at every stopping point, your final output is spoken aloud and the user replies by voice.
 
+## When it applies
+
+The loop is per session and **off by default**: `/voice-on` switches it on, `/voice-off` off. The
+`Stop` hook only nudges in a session that is on, so if the user has not run `/voice-on` — or has
+just run `/voice-off` — answer in the terminal and stop, without calling `talk_to_user`.
+
 ## The rule
 
 **Write your answer as normal text first, then call the `talk_to_user` tool.** Both, in that

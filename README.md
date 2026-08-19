@@ -32,9 +32,27 @@ In Claude Code:
 `/voice-setup` checks the install, installs the three dependencies on first run, asks for your
 OpenRouter key, validates it against OpenRouter before saving it, and writes it to
 `~/.claude-voice/.env` with mode `600` — outside the plugin, so plugin updates never take it
-with them. Restart Claude Code and the loop is live.
+with them. Restart Claude Code and the loop is ready.
 
 `/voice-doctor` tells you what is wrong if it isn't.
+
+### Switching it on: `/voice-on`
+
+**Installed is not the same as on.** The loop is off in every session until you ask for it:
+
+```
+/voice-on     # this session talks
+/voice-off    # this session goes quiet again
+```
+
+Most sessions are ordinary typing, and a plugin that turned every one of them into a phone call
+would be uninstalled by the end of the week. The switch is per session — a new session starts off
+— because that is the unit you actually decide in: this one is hands-free, that one is not. The
+state is one small file per session id under `~/.claude-voice/sessions/`, which is how a slash
+command (its own shell, no way to export anything back) and the `Stop` hook see the same answer.
+
+`VOICE_ALWAYS=1` in the environment keeps it on without asking, for a machine you only ever use
+by voice. `VOICE_DISABLE=1` still wins over both.
 
 ### Or: hand it to your coding agent
 
@@ -310,7 +328,8 @@ overrides them. The ones worth knowing:
 | — | — | (the media agent pauses on YOUR machine instead, and needs no setting) |
 | `VOICE_PAUSE_CMD` / `VOICE_RESUME_CMD` | — | your own commands, instead of the per-platform guess |
 | `VOICE_DEV` | `0` | run each call in a fresh process, for editing the code |
-| `VOICE_DISABLE` | `0` | turn the `Stop` nudge off |
+| `VOICE_ALWAYS` | `0` | `1` keeps the loop on in every session, instead of `/voice-on` per session |
+| `VOICE_DISABLE` | `0` | turn the `Stop` nudge off — wins over everything, including `VOICE_ALWAYS` |
 | `VOICE_AUTO_UPDATE` | `1` | `0` stops the plugin updating itself from GitHub |
 | `VOICE_AUTO_UPDATE_MS` | `21600000` | how often it looks for a new version (6 h) |
 
@@ -342,8 +361,10 @@ with the microphone open during playback, an echo canceller that does not fully 
 page's own audio makes the voice interrupt itself. `VOICE_BARGE_IN=1` if your setup handles it —
 headphones always do.
 
-**Claude never calls the tool.** The nudge only fires when the loop can actually run: no key, no
-nudge. Run `/voice-doctor`.
+**Claude never calls the tool.** First question: did you run `/voice-on`? The loop is off by
+default in every session, and an off session is silent on purpose. Beyond that the nudge only
+fires when the loop can actually run: no key, no nudge. `/voice-doctor` reports both, as
+`session.on` and `keyPresent`.
 
 **`talk_to_user` does not exist at all.** That is not the plugin failing to start, it is usually
 the client not starting it. Answering "no" once to the prompt that asks whether to trust a

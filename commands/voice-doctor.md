@@ -23,6 +23,11 @@ opened at all and where it will appear:
   `ssh -L <browserPort>:127.0.0.1:<browserPort> <user>@<host>`. If they are in VS Code and it
   is still null, the `code` CLI is not on PATH in this shell — VS Code's own terminal has it.
 
+Read `session` before anything else if the complaint is "nothing is spoken": the loop is OFF in
+every session until `/voice-on` switches it on, so `session.on` false means everything is working
+and this session simply is not a voice session. Say that, and name `/voice-on`. `session.id` null
+means the check ran outside a Claude Code session, so it could not tell either way.
+
 If the user's complaint is that `talk_to_user` is missing, read `mcp` before anything else —
 it separates the two causes that look identical from the chat:
 

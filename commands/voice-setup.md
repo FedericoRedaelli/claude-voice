@@ -42,6 +42,9 @@ stop at the first one that cannot be satisfied.
      from their own machine first: `ssh -L 8787:127.0.0.1:8787 <user>@<host>`, then open the
      URL there.
    - They must **restart Claude Code** so the voice server reads the new key.
+   - The loop is **off by default in every session**: after the restart they run `/voice-on` in
+     any session they want to speak in, and `/voice-off` to go quiet again. Installing the plugin
+     does not make every session a voice session.
 
-7. Finally, tell them to say something back to you after the restart so the first call can be
-   tested — the tab will ask for microphone permission once.
+7. Finally, tell them to run `/voice-on` after the restart and say something back to you, so the
+   first call can be tested — the tab will ask for microphone permission once.

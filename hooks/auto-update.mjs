@@ -20,6 +20,7 @@ import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { loadEnvFile, userEnvDir } from "../src/env.mjs";
+import { prune } from "../src/gate.mjs";
 
 loadEnvFile();
 
@@ -119,6 +120,9 @@ function runCheck() {
 
 // The hook proper: report, then maybe start a check. Never blocks on the check.
 function main() {
+  // A session that ended left its voice switch behind, and nothing else would ever clear it.
+  prune();
+
   if (process.env.VOICE_AUTO_UPDATE === "0") return;
 
   const state = readState();

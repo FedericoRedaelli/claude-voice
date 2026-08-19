@@ -16,6 +16,7 @@ import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadEnvFile } from "../src/env.mjs";
+import { isOn } from "../src/gate.mjs";
 
 // Pick up persisted settings (plugin-root/.env) so the key/mode gate below matches the
 // server's view even when nothing was exported in the shell.
@@ -155,6 +156,10 @@ function main() {
   } catch {
     allow(); // no parseable input -> fail open
   }
+
+  // The session switch. Installing the plugin must not put a voice loop on every session in
+  // every project: the loop is off until `/voice-on` says otherwise for THIS session id.
+  if (!isOn(hook.session_id)) allow();
 
   const decision = hook.transcript_path ? lastDecision(hook.transcript_path) : null;
 
